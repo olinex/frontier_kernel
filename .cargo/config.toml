@@ -1,0 +1,10 @@
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+    # use liner.ld as linker settings
+    "-Clink-arg=-Tsrc/linker.ld",
+    # force keep the assembly codes of the frame pointers in object file
+    "-Cforce-frame-pointers=yes",
+]
