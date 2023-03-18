@@ -73,6 +73,7 @@ show-disassembly-code:
 
 # Build the kernel binary
 $(KERNEL_ELF): version
+	@cd ../user && make build
 	@echo "####################### build kernel elf #######################"
 	@echo Use $(LINKERLD) as linker.ld
 	@cp $(LINKERLD) src/linker.ld

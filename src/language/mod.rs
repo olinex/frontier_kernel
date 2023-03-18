@@ -5,6 +5,7 @@
 pub(crate) mod console;
 pub(crate) mod macros;
 pub(crate) mod panic;
+pub(crate) mod refs;
 
 // use other mods
 
