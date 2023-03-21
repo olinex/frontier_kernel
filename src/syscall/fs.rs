@@ -11,8 +11,8 @@ use crate::print;
 
 const FD_STDOUT: usize = 1;
 
-/// write buf of length `len`  to a file with `fd`
-pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
+// write buf of length `len`  to a file with `fd`
+pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     match fd {
         FD_STDOUT => {
             let slice = unsafe { core::slice::from_raw_parts(buf, len) };

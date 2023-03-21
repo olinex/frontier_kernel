@@ -1,58 +1,96 @@
+// @author:    olinex
+// @time:      2023/03/21
+
+// self mods
+
+// use other mods
 //ref:: https://github.com/andre-richter/qemu-exit
 use core::arch::asm;
 
-const EXIT_SUCCESS: u32 = 0x5555; // Equals `exit(0)`. qemu successful exit
+// use self mods
 
-const EXIT_FAILURE_FLAG: u32 = 0x3333;
-const EXIT_FAILURE: u32 = exit_code_encode(1); // Equals `exit(1)`. qemu failed exit
-const EXIT_RESET: u32 = 0x7777; // qemu reset
+const VIRT_TEST: u64 = 0x100000;
+const EXIT_FAILURE_FLAG: isize = 0x3333;
 
-pub trait QEMUExit {
-    /// Exit with specified return code.
-    ///
-    /// Note: For `X86`, code is binary-OR'ed with `0x1` inside QEMU.
-    fn exit(&self, code: u32) -> !;
+// Encode the exit code using EXIT_FAILURE_FLAG.
+const fn exit_code_encode(code: u32) -> u32 {
+    (code << 16) | (EXIT_FAILURE_FLAG as u32)
+}
 
-    /// Exit QEMU using `EXIT_SUCCESS`, aka `0`, if possible.
-    ///
-    /// Note: Not possible for `X86`.
-    fn exit_success(&self) -> !;
+pub(crate) enum QEMUExitStatus {
+    /// Equals `exit(0)`. qemu successful exit
+    Success = 0x5555,
+    /// qemu reset
+    Reset = 0x7777,
+    /// Equals `exit(1)`. qemu failed exit
+    Failure = exit_code_encode(1) as isize,
+}
 
-    /// Exit QEMU using `EXIT_FAILURE`, aka `1`.
-    fn exit_failure(&self) -> !;
+pub(crate) enum ExitStatus {
+    QEMU(QEMUExitStatus),
+    Other(u32),
+}
+
+pub(crate) trait QEMUExit {
+    // Exit with specified return code.
+    //
+    // Note: For `X86`, code is binary-OR'ed with `0x1` inside QEMU.
+    fn exit(&self, status: ExitStatus) -> !;
+
+    // Exit QEMU using `Success`, aka `0`, if possible.
+    //
+    // Note: Not possible for `X86`.
+    #[inline]
+    fn exit_success(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Success));
+    }
+
+    // Exit QEMU using `Failure`, aka `1`.
+    #[inline]
+    fn exit_failure(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Failure));
+    }
+
+    // Exit QEMU using `Reset`, aka `2`.
+    #[inline]
+    fn exit_reset(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Reset));
+    }
+
+    // Exit QEMU using `Other`, aka `3`.
+    #[inline]
+    fn exit_other(&self, code: u32) -> ! {
+        self.exit(ExitStatus::Other(code));
+    }
 }
 
 /// RISCV64 configuration
-pub struct RISCV64 {
+pub(crate) struct RISCV64 {
     /// Address of the sifive_test mapped device.
     addr: u64,
 }
 
-/// Encode the exit code using EXIT_FAILURE_FLAG.
-const fn exit_code_encode(code: u32) -> u32 {
-    (code << 16) | EXIT_FAILURE_FLAG
-}
-
 impl RISCV64 {
     /// Create an instance.
-    pub const fn new(addr: u64) -> Self {
+    pub(crate) const fn new(addr: u64) -> Self {
         RISCV64 { addr }
     }
 }
 
 impl QEMUExit for RISCV64 {
-    /// Exit qemu with specified exit code.
-    fn exit(&self, code: u32) -> ! {
+    // Exit qemu with specified exit code.
+    fn exit(&self, status: ExitStatus) -> ! {
         // If code is not a special value, we need to encode it with EXIT_FAILURE_FLAG.
-        let code_new = match code {
-            EXIT_SUCCESS | EXIT_FAILURE | EXIT_RESET => code,
-            _ => exit_code_encode(code),
+        let code = match status {
+            ExitStatus::QEMU(q_status) => q_status as u32,
+            ExitStatus::Other(o_status) => exit_code_encode(o_status),
         };
 
         unsafe {
             asm!(
                 "sw {0}, 0({1})",
-                in(reg)code_new, in(reg)self.addr
+                in(reg)code,
+                in(reg)self.addr
             );
 
             // For the case that the QEMU exit attempt did not work, transition into an infinite
@@ -64,16 +102,6 @@ impl QEMUExit for RISCV64 {
             }
         }
     }
-
-    fn exit_success(&self) -> ! {
-        self.exit(EXIT_SUCCESS);
-    }
-
-    fn exit_failure(&self) -> ! {
-        self.exit(EXIT_FAILURE);
-    }
 }
 
-const VIRT_TEST: u64 = 0x100000;
-
-pub const QEMU_EXIT_HANDLE: RISCV64 = RISCV64::new(VIRT_TEST);
+pub(crate) const QEMU_EXIT_HANDLE: RISCV64 = RISCV64::new(VIRT_TEST);
