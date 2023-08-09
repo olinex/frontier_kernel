@@ -50,6 +50,11 @@ version:
 	@echo Supervisor Binary Interface: $(SBI)
 	@echo Target: $(TARGET)
 
+# Show qemu version info
+qemu-version:
+	@qemu-riscv64 --version
+	@qemu-system-riscv64 --version
+
 show-kernel-elf-stat:
 	@echo "####################### show kernel elf stat #######################"
 	@stat $(KERNEL_ELF)
@@ -89,7 +94,7 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 	@echo "\n\n\n"
 
 # Buld the kernel
-build: $(KERNEL_BIN) show-kernel-elf-stat show-kernel-bin-stat 
+build: $(KERNEL_BIN) show-kernel-elf-stat show-kernel-bin-stat
 
 # Build the kernel and run it in qemu
 run-qemu-with-riscv64: $(KERNEL_BIN)
