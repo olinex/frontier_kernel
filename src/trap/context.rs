@@ -9,7 +9,7 @@ use riscv::register::sstatus::{self, Sstatus, SPP};
 // use self mods
 
 #[repr(C)]
-pub(crate) struct TrapContext {
+pub struct TrapContext {
     /// general purpose registers
     pub x: [usize; 32],
     /// supervisor status register
@@ -21,16 +21,16 @@ pub(crate) struct TrapContext {
 impl TrapContext {
     /// write value to x2 register (sp)
     /// @sp: the stack pointer memory address
-    pub(crate) fn set_sp(&mut self, sp: usize) {
+    pub fn set_sp(&mut self, sp: usize) {
         self.x[2] = sp;
     }
     /// init app context
     /// @entry: application code entry point memory address
     /// @sp:  the stack pointer memory address
-    pub(crate) fn create_app_init_context(entry: usize, sp: usize) -> Self {
+    pub fn create_app_init_context(entry: usize, sp: usize) -> Self {
         // read sstatus register value
         let mut sstatus = sstatus::read();
-        // for app context, the supervisor previous privilege mode muse bye use
+        // for app context, the supervisor previous privilege mode muse be user
         sstatus.set_spp(SPP::User);
         let mut cx = Self {
             x: [0; 32],

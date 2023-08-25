@@ -8,7 +8,7 @@ use core::cell::{RefCell, RefMut};
 
 // use self mods
 
-pub(crate) struct UPSafeCell<T> {
+pub struct UPSafeCell<T> {
     // inner data
     inner: RefCell<T>,
 }
@@ -19,13 +19,13 @@ unsafe impl<T> Sync for UPSafeCell<T> {}
 impl<T> UPSafeCell<T> {
     // User is responsible to guarantee that inner struct is only used in
     // uniprocessor.
-    pub(crate) unsafe fn new(value: T) -> Self {
+    pub unsafe fn new(value: T) -> Self {
         Self {
             inner: RefCell::new(value),
         }
     }
     // Panic if the data has been borrowed.
-    pub(crate) fn exclusive_access(&self) -> RefMut<'_, T> {
+    pub fn exclusive_access(&self) -> RefMut<'_, T> {
         self.inner.borrow_mut()
     }
 }

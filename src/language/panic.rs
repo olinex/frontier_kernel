@@ -5,10 +5,10 @@
 
 // use other mods
 use core::panic::PanicInfo;
+use sbi;
 
 // use self mods
 use crate::println;
-use crate::sbi::shutdown;
 
 // panic handler must end the process and return noting
 #[panic_handler]
@@ -23,8 +23,5 @@ fn panic(info: &PanicInfo) -> ! {
     } else {
         println!("Panicked: {}", info.message().unwrap());
     }
-    loop {
-        // TODO: shutdown may be failed
-        shutdown();
-    }
+    sbi::legacy::shutdown()
 }

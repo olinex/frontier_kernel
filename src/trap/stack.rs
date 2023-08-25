@@ -11,7 +11,7 @@ use super::context::TrapContext;
 const USER_STACK_SIZE: usize = 1024 * 8;
 const KERNEL_STACK_SIZE: usize = 1024 * 8;
 
-pub(crate) trait Stack {
+pub trait Stack {
     fn get_size(&self) -> usize;
     fn get_bottom(&self) -> usize;
 
@@ -22,7 +22,7 @@ pub(crate) trait Stack {
 }
 
 #[repr(align(4096))]
-pub(crate) struct KernelStack {
+pub struct KernelStack {
     data: [u8; KERNEL_STACK_SIZE],
 }
 
@@ -39,7 +39,7 @@ impl Stack for KernelStack {
 }
 
 impl KernelStack {
-    pub(crate) fn push_context(&self, cx: TrapContext) -> &'static mut TrapContext {
+    pub fn push_context(&self, cx: TrapContext) -> &'static mut TrapContext {
         let cx_ptr =
             (self.get_top() - core::mem::size_of::<TrapContext>()) as *mut TrapContext;
         unsafe {
@@ -50,7 +50,7 @@ impl KernelStack {
 }
 
 #[repr(align(4096))]
-pub(crate) struct UserStack {
+pub struct UserStack {
     data: [u8; USER_STACK_SIZE],
 }
 
@@ -66,10 +66,10 @@ impl Stack for UserStack {
     }
 }
 
-pub(crate) static KERNEL_STACK: KernelStack = KernelStack {
+pub static KERNEL_STACK: KernelStack = KernelStack {
     data: [0; KERNEL_STACK_SIZE],
 };
 
-pub(crate) static USER_STACK: UserStack = UserStack {
+pub static USER_STACK: UserStack = UserStack {
     data: [0; USER_STACK_SIZE],
 };

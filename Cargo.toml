@@ -1,10 +1,12 @@
 [package]
 name = "frontier_kernel"
 version = "0.1.0"
+authors = ["Cimang Jiang <joshua.olin@163.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+sbi = "0.2.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 riscv = { git = "https://github.com/rcore-os/riscv", features = ["inline-asm"] }

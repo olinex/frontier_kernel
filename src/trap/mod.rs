@@ -13,20 +13,20 @@ use riscv::register::{mtvec::TrapMode, stvec};
 // use self mods
 
 // load asemble trap entry code
-global_asm!(include_str!("../assemble/trap.asm"));
+global_asm!(include_str!("../assembly/trap.asm"));
 
 /// init the supervisor trap vector base address register(stvec)'s value,
-/// which was the address of the symbol '_addr_save_all_registers_before_trap'
-/// this symbol was point to some assemble code that does two main things:
+/// which was the address of the symbol '_fn_save_all_registers_before_trap'
+/// this symbol was point to some assembly code that does two main things:
 /// 1 save all registers 
 /// 2 call trap_handler and pass user stack
 pub(crate) fn init() {
     extern "C" {
-        fn _addr_save_all_registers_before_trap();
+        fn _fn_save_all_registers_before_trap();
     }
     unsafe {
         stvec::write(
-            _addr_save_all_registers_before_trap as usize,
+            _fn_save_all_registers_before_trap as usize,
             TrapMode::Direct,
         )
     }

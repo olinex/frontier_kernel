@@ -17,7 +17,7 @@ const MAX_APP_NUM: usize = 16;
 const APP_BASE_ADDRESS: usize = 0x80400000;
 const APP_SIZE_LIMIT: usize = 0x20000;
 
-global_asm!(include_str!("./assemble/link_app.asm"));
+global_asm!(include_str!("./assembly/link_app.asm"));
 
 struct AppManager {
     // total count of the applications
@@ -35,7 +35,7 @@ impl AppManager {
         println!("[kernel] app count = {}", self.app_count);
         for i in 0..self.app_count {
             println!(
-                "[kernel] app_{} [{:#x}, {:#x})",
+                "[kernel] app_{} memory range [{:#x}, {:#x})",
                 i,
                 self.app_start_addresses[i],
                 self.app_start_addresses[i + 1]
@@ -69,28 +69,29 @@ impl AppManager {
         asm!("fence.i");
     }
 
-    pub(crate) fn get_current_app(&self) -> usize {
+    pub fn get_current_app(&self) -> usize {
         self.current_app
     }
 
-    pub(crate) fn move_to_next_app(&mut self) {
+    pub fn move_to_next_app(&mut self) {
         self.current_app += 1;
         if self.current_app > self.app_count {
-            panic!("[kernel] cannot move to next app out of range: {}", self.app_count)
+            panic!(
+                "[kernel] cannot move to next app out of range: {}",
+                self.app_count
+            )
         };
     }
 }
 
 // app manager should be initialized as static when code was compiling
 // and it must be accessible as global symbol by
-// but app manager contains 
+// but app manager contains
 lazy_static! {
     static ref APP_MANAGER: UPSafeCell<AppManager> = unsafe {
         UPSafeCell::new({
             // load _addr_app_count which defined in link_app.asm
-            extern "C" {
-                fn _addr_app_count();
-            }
+            extern "C" { fn _addr_app_count(); }
             // convert _addr_app_count as const usize pointer
             let app_count_ptr = _addr_app_count as usize as *const usize;
             // read app_count value
@@ -118,37 +119,38 @@ lazy_static! {
 }
 
 /// init batch subsystem
-pub(crate) fn init() {
+pub fn init() {
     print_app_infos();
 }
 
 /// print apps info
-pub(crate) fn print_app_infos() {
+pub fn print_app_infos() {
     APP_MANAGER.exclusive_access().print_app_infos();
 }
 
 /// run next app
-pub(crate) fn run_next_app() -> ! {
+/// this function must be called in SEE
+pub fn run_next_app() -> ! {
     // get real app manager obj from ref cell
     let mut app_manager = APP_MANAGER.exclusive_access();
     // get current application index
     let current_app = app_manager.get_current_app();
-    // load current app code 
+    // load current app code
     unsafe {
         app_manager.load_app(current_app);
     }
 
     app_manager.move_to_next_app();
-    drop(app_manager);
     // before this we have to drop local variables related to resources manually
     // and release the resources
-    extern "C" {
-        fn _addr_restore_all_registers_after_trap(cx_addr: usize);
-    }
+    drop(app_manager);
     let ctx = TrapContext::create_app_init_context(APP_BASE_ADDRESS, USER_STACK.get_top());
     let ctx = KERNEL_STACK.push_context(ctx);
+    extern "C" {
+        fn _fn_restore_all_registers_after_trap(cx_addr: usize);
+    }
     unsafe {
-        _addr_restore_all_registers_after_trap(ctx as *const _ as usize);
+        _fn_restore_all_registers_after_trap(ctx as *const _ as usize);
     }
     panic!("Unreachable in batch::run_current_app!");
 }
