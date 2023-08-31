@@ -2,12 +2,14 @@
 // @time:      2023/08/14
 
 // self mods
+pub mod context;
+pub mod stack;
 
 // use other mods
 
 // use self mods
 
-// init bss section to zero is very import when kernel was ready
+// init bss section to zero is very import when kernel was initializing
 #[inline]
 pub fn clear_bss() {
     extern "C" {

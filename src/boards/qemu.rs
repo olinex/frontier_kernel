@@ -17,21 +17,21 @@ const fn exit_code_encode(code: u32) -> u32 {
     (code << 16) | (EXIT_FAILURE_FLAG as u32)
 }
 
-pub(crate) enum QEMUExitStatus {
-    /// Equals `exit(0)`. qemu successful exit
+pub enum QEMUExitStatus {
+    // Equals `exit(0)`. qemu successful exit
     Success = 0x5555,
-    /// qemu reset
+    // qemu reset
     Reset = 0x7777,
-    /// Equals `exit(1)`. qemu failed exit
+    // Equals `exit(1)`. qemu failed exit
     Failure = exit_code_encode(1) as isize,
 }
 
-pub(crate) enum ExitStatus {
+pub enum ExitStatus {
     QEMU(QEMUExitStatus),
     Other(u32),
 }
 
-pub(crate) trait QEMUExit {
+pub trait QEMUExit {
     // Exit with specified return code.
     //
     // Note: For `X86`, code is binary-OR'ed with `0x1` inside QEMU.
@@ -64,15 +64,15 @@ pub(crate) trait QEMUExit {
     }
 }
 
-/// RISCV64 configuration
-pub(crate) struct RISCV64 {
-    /// Address of the sifive_test mapped device.
+// RISCV64 configuration
+pub struct RISCV64 {
+    // Address of the sifive_test mapped device.
     addr: u64,
 }
 
 impl RISCV64 {
-    /// Create an instance.
-    pub(crate) const fn new(addr: u64) -> Self {
+    // Create an instance.
+    pub const fn new(addr: u64) -> Self {
         RISCV64 { addr }
     }
 }
@@ -104,4 +104,4 @@ impl QEMUExit for RISCV64 {
     }
 }
 
-pub(crate) const QEMU_EXIT_HANDLE: RISCV64 = RISCV64::new(VIRT_TEST);
+pub const QEMU_EXIT_HANDLE: RISCV64 = RISCV64::new(VIRT_TEST);

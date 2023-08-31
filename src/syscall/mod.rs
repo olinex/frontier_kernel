@@ -21,7 +21,7 @@ pub mod syscall_ids {
     pub const EXIT: usize = 93;
 }
 
-/// handle syscall exception with `syscall_id` and other arguments
+// handle syscall exception with `syscall_id` and other arguments
 #[inline(always)]
 pub fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
     match syscall_id {

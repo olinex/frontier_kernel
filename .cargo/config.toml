@@ -1,11 +1,6 @@
 [build]
 target = "riscv64gc-unknown-none-elf"
 
-[features]
-board_qemu = []
-board_other = []
-
-
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
     # use liner.ld as linker settings

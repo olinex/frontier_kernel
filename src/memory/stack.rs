@@ -7,9 +7,7 @@
 
 // use self mods
 use super::context::TrapContext;
-
-const USER_STACK_SIZE: usize = 1024 * 8;
-const KERNEL_STACK_SIZE: usize = 1024 * 8;
+use crate::configs::{KERNEL_STACK_SIZE, MAX_APP_NUM, USER_STACK_SIZE};
 
 pub trait Stack {
     fn get_size(&self) -> usize;
@@ -22,6 +20,7 @@ pub trait Stack {
 }
 
 #[repr(align(4096))]
+#[derive(Copy, Clone)]
 pub struct KernelStack {
     data: [u8; KERNEL_STACK_SIZE],
 }
@@ -40,16 +39,16 @@ impl Stack for KernelStack {
 
 impl KernelStack {
     pub fn push_context(&self, cx: TrapContext) -> &'static mut TrapContext {
-        let cx_ptr =
-            (self.get_top() - core::mem::size_of::<TrapContext>()) as *mut TrapContext;
+        let cx_ptr = (self.get_top() - core::mem::size_of::<TrapContext>()) as *mut TrapContext;
         unsafe {
             *cx_ptr = cx;
+            cx_ptr.as_mut().unwrap()
         }
-        unsafe { cx_ptr.as_mut().unwrap() }
     }
 }
 
 #[repr(align(4096))]
+#[derive(Copy, Clone)]
 pub struct UserStack {
     data: [u8; USER_STACK_SIZE],
 }
@@ -66,10 +65,16 @@ impl Stack for UserStack {
     }
 }
 
-pub static KERNEL_STACK: KernelStack = KernelStack {
-    data: [0; KERNEL_STACK_SIZE],
-};
+pub static KERNEL_STACK: [KernelStack; MAX_APP_NUM] = [
+    KernelStack {
+        data: [0; KERNEL_STACK_SIZE],
+    };
+    MAX_APP_NUM
+];
 
-pub static USER_STACK: UserStack = UserStack {
-    data: [0; USER_STACK_SIZE],
-};
+pub static USER_STACK: [UserStack; MAX_APP_NUM] = [
+    UserStack {
+        data: [0; USER_STACK_SIZE],
+    };
+    MAX_APP_NUM
+];

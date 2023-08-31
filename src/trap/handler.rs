@@ -10,17 +10,17 @@ use riscv::register::{
 };
 
 // use self mods
-use super::context::TrapContext;
-use crate::batch::run_next_app;
+use crate::loader;
+use crate::memory::context;
 use crate::println;
 use crate::syscall::syscall;
 
-/// the handler function of the kernel, there were three types of cause here
-/// 1. application make ecalls to the kernel, handler will dispatch to the syscall
-/// 2. some exceptions were thrown, handler will kill the application and continue
-/// 3. other exceptions were thrown and the kernel was panic
+// the handler function of the kernel, there were three types of cause here
+// 1. application make ecalls to the kernel, handler will dispatch to the syscall
+// 2. some exceptions were thrown, handler will kill the application and continue
+// 3. other exceptions were thrown and the kernel was panic
 #[inline(always)]
-fn exception_trap_handler(ctx: &mut TrapContext, exception: Exception, stval: usize) {
+fn exception_trap_handler(ctx: &mut context::TrapContext, exception: Exception, stval: usize) {
     match exception {
         // UEE make ecalls
         Exception::UserEnvCall => {
@@ -32,12 +32,12 @@ fn exception_trap_handler(ctx: &mut TrapContext, exception: Exception, stval: us
         // exception about memory fault
         Exception::StoreFault | Exception::StorePageFault => {
             println!("[kernel] PageFault in application, kernel killed it.");
-            run_next_app();
+            loader::run_next_app();
         }
         // apllcation run some illegal instruction
         Exception::IllegalInstruction => {
             println!("[kernel] IllegalInstruction in application, kernel killed it.");
-            run_next_app();
+            loader::run_next_app();
         }
         _ => {
             panic!(
@@ -49,7 +49,7 @@ fn exception_trap_handler(ctx: &mut TrapContext, exception: Exception, stval: us
 }
 
 #[no_mangle]
-pub fn trap_handler(ctx: &mut TrapContext) -> &mut TrapContext {
+pub fn trap_handler(ctx: &mut context::TrapContext) -> &mut context::TrapContext {
     // read the trap cause from register
     let scause = scause::read();
     // read the trap specific info value from register

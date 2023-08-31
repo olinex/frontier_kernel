@@ -60,7 +60,6 @@ _fn_save_all_registers_before_trap:
 // case1: back to U after `call trap_handler`, in this case the next instrction, `mv sp, a0`, is useless
 // case2: back to U after at first 
 _fn_restore_all_registers_after_trap:
-    // now sp->kernel stack(after allocated), sscratch->user stack
     mv sp, a0
     // read sstatus value from memory and save it to register
     ld t0, 32*WORD_SIZE(sp)
@@ -71,11 +70,11 @@ _fn_restore_all_registers_after_trap:
     // read sscratch value from memory and save it to register
     ld t2, 2*WORD_SIZE(sp)
     csrw sscratch, t2
-    // restore general purpuse registers except x0/x2/x4
-    ld x1, 1*WORD_SIZE(sp)
-    ld x3, 3*WORD_SIZE(sp)
-    .set n, 5
-    .rept 27
+    // restore general purpuse registers except zero/sp
+    ld ra, 1*WORD_SIZE(sp)
+    ld gp, 3*WORD_SIZE(sp)
+    .set n, 4
+    .rept 28
         LOAD_GENERAL_PURPOSE_REGISTER %n
         .set n, n+1
     .endr

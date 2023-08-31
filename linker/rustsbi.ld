@@ -18,6 +18,7 @@ SECTIONS
         PROVIDE(_addr_text_start = .);
         /* sub sction .text.entry will be the first part of .text section */
         *(.text.entry)
+        *(.text .text.*)
         PROVIDE(_addr_text_end = .);
     } > RAM
 
