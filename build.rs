@@ -7,6 +7,7 @@
 // but it does integrate with them with custom build scripts.
 // Placing a file named build.rs in the root of a package will cause Cargo to compile that script and execute it just before building the package.
 
+
 use std::fs::{read_dir, File};
 use std::io::{Result, Write};
 
@@ -19,7 +20,7 @@ fn main() {
 }
 
 fn insert_app_data() -> Result<()> {
-    let mut f = File::create("./src/assembly/link_app.asm")?;
+    let mut f = File::create("./src/assembly/riscv64/link_app.asm")?;
     let mut apps: Vec<_> = read_dir("../frontier_user/src/bin")?
         .into_iter()
         .map(|dir_entry| {

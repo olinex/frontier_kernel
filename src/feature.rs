@@ -4,6 +4,7 @@
 // self mods
 
 // use other mods
+use cfg_if::cfg_if;
 use core::convert::From;
 
 // use self mods
@@ -23,8 +24,26 @@ impl From<usize> for FeatureWord {
     }
 }
 
-// feature word choice
-#[cfg(target_pointer_width = "32")]
-pub const FEATURE_WORD: FeatureWord = FeatureWord::Word32;
-#[cfg(target_pointer_width = "64")]
-pub const FEATURE_WORD: FeatureWord = FeatureWord::Word64;
+pub enum FeatureBoard {
+    Qemu,
+}
+
+cfg_if! {
+    if #[cfg(target_pointer_width = "32")] {
+        pub const FEATURE_WORD: FeatureWord = FeatureWord::Word32;
+    } else if #[cfg(target_pointer_width = "64")] {
+        pub const FEATURE_WORD: FeatureWord = FeatureWord::Word64;
+    } else {
+        compile_error!("Unknown feature target_pointer_width")
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "board_qemu")] {
+        pub const FEATURE_BOARD: FeatureBoard = FeatureBoard::Qemu;
+    } else {
+        compile_error!("Unknown board feature")
+    }
+}
+
+

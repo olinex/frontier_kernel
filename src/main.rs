@@ -19,12 +19,19 @@ mod syscall;
 mod trap;
 
 // use other mods
+use cfg_if::cfg_if;
 use core::arch::global_asm;
 
 // use self mods
 
 // load assembly file and do init
-global_asm!(include_str!("./assembly/entry.asm"));
+cfg_if! {
+    if #[cfg(target_arch = "riscv64")] {
+        global_asm!(include_str!("./assembly/riscv64/entry.asm"));
+    } else {
+        compile_error!("Unkown target_arch to load entry.asm from ./assembly");
+    }
+}
 
 // for avoid rust main entrypoint symbol be confused by compiler
 #[no_mangle]

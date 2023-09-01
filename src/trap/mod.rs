@@ -5,13 +5,20 @@
 pub mod handler;
 
 // use other mods
+use cfg_if::cfg_if;
 use core::arch::global_asm;
 use riscv::register::{mtvec::TrapMode, stvec};
 
 // use self mods
 
 // load asemble trap entry code
-global_asm!(include_str!("../assembly/trap.asm"));
+cfg_if! {
+    if #[cfg(target_arch = "riscv64")] {
+        global_asm!(include_str!("../assembly/riscv64/trap.asm"));
+    } else {
+        compile_error!("Unkown target_arch to load entry.asm from ./assembly");
+    }
+}
 
 // init the supervisor trap vector base address register(stvec)'s value,
 // which was the address of the symbol '_fn_save_all_registers_before_trap'

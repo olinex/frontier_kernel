@@ -14,7 +14,7 @@ use crate::println;
 use crate::memory::stack::Stack;
 use crate::memory::{context, stack};
 
-global_asm!(include_str!("./assembly/link_app.asm"));
+global_asm!(include_str!("./assembly/riscv64/link_app.asm"));
 
 struct AppLoader {
     // total count of the applications

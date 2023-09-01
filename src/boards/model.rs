@@ -1,11 +1,13 @@
 // @author:    olinex
-// @time:      2023/03/17
+// @time:      2023/09/01
 
 // self mods
-pub mod qemu;
 
 // use other mods
 
 // use self mods
 
 
+pub trait Exit {
+    
+}

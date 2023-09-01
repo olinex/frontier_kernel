@@ -14,14 +14,14 @@ LINKER_DIR := ./linker
 TEST_COMMAND := noneOfTest
 
 RUNTIME := $(RUNTIME_DIR)/$(SBI)-$(BOARD).bin
-SOURCE_MEMORY_LINKERLD := $(LINKER_DIR)/$(SBI)-$(BOARD)-memory.ld
-TARGET_MEMORY_LINKERLD := $(LINKER_DIR)/memory.ld
-LINKERLD := $(LINKER_DIR)/$(SBI).ld
+SOURCE_MEMORY_LINKERLD := $(LINKER_DIR)/$(ISA)/$(SBI)-$(BOARD)-memory.ld
+TARGET_MEMORY_LINKERLD := $(LINKER_DIR)/$(ISA)/memory.ld
+LINKERLD := $(LINKER_DIR)/$(ISA)/$(SBI).ld
 DISASM_TMP := $(TARGET_DIR)/$(MODE)/asm
 KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
 SOURCE_TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/deps/frontier_kernel-*[^\.d]
-TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel-unittest
+TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel_unittest
 TEST_KERNEL_BIN := $(TEST_KERNEL_ELF).bin
 
 # Binutils
@@ -55,8 +55,8 @@ version:
 
 # Show qemu version info
 qemu-version:
-	@qemu-riscv64 --version
-	@qemu-system-riscv64 --version
+	@qemu-$(ISA) --version
+	@qemu-system-$(ISA) --version
 
 show-kernel-elf-stat:
 	@echo "####################### show kernel elf stat #######################"
@@ -119,26 +119,26 @@ build: $(KERNEL_BIN) show-kernel-elf-stat show-kernel-bin-stat
 build-test: $(TEST_KERNEL_BIN)
 
 # Build the kernel and run it in qemu
-run-qemu-with-riscv64: build
-	@qemu-system-riscv64 \
+run-with-qemu: build
+	@qemu-system-$(ISA) \
 		-machine virt \
 		-nographic \
 		-bios $(RUNTIME) \
 		-device loader,file=$(KERNEL_ELF)
 
 # Build the kernel and run it in qemu
-test-qemu-with-riscv64: build-test
-	@qemu-system-riscv64 \
+test-with-qemu: build-test
+	@qemu-system-$(ISA) \
 		-machine virt \
 		-nographic \
 		-bios $(RUNTIME) \
 		-device loader,file=$(TEST_KERNEL_ELF)
 
 # Run tmux and split two windows with gdbclient and qemu
-debug-qemu-with-riscv64: build
+debug-with-qemu: build
 	@tmux new-session -d \
-		"qemu-system-riscv64 -machine virt -nographic -bios $(RUNTIME) -device loader,file=$(KERNEL_ELF) -s -S" && \
-		tmux split-window -h "riscv64-unknown-elf-gdb-py -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
+		"qemu-system-$(ISA) -machine virt -nographic -bios $(RUNTIME) -device loader,file=$(KERNEL_ELF) -s -S" && \
+		tmux split-window -h "$(ISA)-unknown-elf-gdb-py -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
 
 .PHONY: \
@@ -152,7 +152,7 @@ debug-qemu-with-riscv64: build
 	show-disassembly-code \
 	build \
 	build-test \
-	run-qemu-with-riscv64 \
-	test-qemu-with-riscv64 \
-	debug-qemu-with-riscv64
+	run-with-qemu \
+	test-with-qemu \
+	debug-with-qemu
 

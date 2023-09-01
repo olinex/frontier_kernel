@@ -4,7 +4,7 @@ target = "riscv64gc-unknown-none-elf"
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
     # use liner.ld as linker settings
-    "-Clink-arg=-L./linker",
+    "-Clink-arg=-L./linker/riscv64",
     "-Clink-arg=-Trustsbi.ld",
     # force keep the assembly codes of the frame pointers in object file
     "-Cforce-frame-pointers=no",
