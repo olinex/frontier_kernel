@@ -13,10 +13,10 @@ mod feature;
 mod boards;
 mod configs;
 mod lang;
-mod loader;
 mod memory;
 mod syscall;
 mod trap;
+mod task;
 
 // use other mods
 use cfg_if::cfg_if;
@@ -46,6 +46,6 @@ fn main() -> ! {
 fn binary_main() -> ! {
     memory::clear_bss();
     trap::init();
-    loader::init();
-    loader::run_next_app();
+    task::init();
+    task::run();
 }

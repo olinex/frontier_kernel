@@ -60,7 +60,7 @@ _fn_save_all_registers_before_trap:
 // case1: back to U after `call trap_handler`, in this case the next instrction, `mv sp, a0`, is useless
 // case2: back to U after at first 
 _fn_restore_all_registers_after_trap:
-    mv sp, a0
+    # mv sp, a0
     // read sstatus value from memory and save it to register
     ld t0, 32*WORD_SIZE(sp)
     csrw sstatus, t0

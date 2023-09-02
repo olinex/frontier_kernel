@@ -10,10 +10,10 @@ use riscv::register::{
 };
 
 // use self mods
-use crate::loader;
-use crate::memory::context;
+use crate::task;
 use crate::println;
 use crate::syscall::syscall;
+use super::context;
 
 // the handler function of the kernel, there were three types of cause here
 // 1. application make ecalls to the kernel, handler will dispatch to the syscall
@@ -32,12 +32,12 @@ fn exception_trap_handler(ctx: &mut context::TrapContext, exception: Exception, 
         // exception about memory fault
         Exception::StoreFault | Exception::StorePageFault => {
             println!("[kernel] PageFault in application, kernel killed it.");
-            loader::run_next_app();
+            task::exit_current_and_run_other_task();
         }
         // apllcation run some illegal instruction
         Exception::IllegalInstruction => {
             println!("[kernel] IllegalInstruction in application, kernel killed it.");
-            loader::run_next_app();
+            task::exit_current_and_run_other_task();
         }
         _ => {
             panic!(

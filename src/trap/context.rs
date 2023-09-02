@@ -7,8 +7,11 @@
 use riscv::register::sstatus::{self, Sstatus, SPP};
 
 // use self mods
+use crate::configs::MAX_APP_NUM;
+use crate::memory::{stack, StackTr};
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct TrapContext {
     // WARNING: could not change the ordering of the fields in this structure,
     // because the context instance might be initialized by assembly code in the assembly/trap.asm
@@ -36,13 +39,28 @@ impl TrapContext {
         let mut sstatus = sstatus::read();
         // for app context, the supervisor previous privilege mode muse be user
         sstatus.set_spp(SPP::User);
-        let mut cx = Self {
+        let mut ctx = Self {
             x: [0; 32],
             sstatus,
             sepc: entry,
         };
         // app's user stack pointer
-        cx.set_sp(sp);
-        cx
+        ctx.set_sp(sp);
+        ctx
     }
 }
+
+impl stack::KernelStack {
+    pub fn push_context(&self, cx: TrapContext) -> &'static mut TrapContext {
+        let cx_ptr = (self.get_top() - core::mem::size_of::<TrapContext>()) as *mut TrapContext;
+        unsafe {
+            *cx_ptr = cx;
+            cx_ptr.as_mut().unwrap()
+        }
+    }
+}
+
+pub static KERNEL_STACK: [stack::KernelStack; MAX_APP_NUM] =
+    [stack::KernelStack::new(); MAX_APP_NUM];
+
+pub static USER_STACK: [stack::UserStack; MAX_APP_NUM] = [stack::UserStack::new(); MAX_APP_NUM];
