@@ -3,6 +3,7 @@
 
 // self mods
 
+use log::error;
 // use other mods
 use riscv::register::{
     scause::{self, Exception, Trap},
@@ -10,10 +11,10 @@ use riscv::register::{
 };
 
 // use self mods
-use crate::task;
-use crate::println;
-use crate::syscall::syscall;
 use super::context;
+use crate::prelude::*;
+use crate::syscall::syscall;
+use crate::task;
 
 // the handler function of the kernel, there were three types of cause here
 // 1. application make ecalls to the kernel, handler will dispatch to the syscall
@@ -27,16 +28,23 @@ fn exception_trap_handler(ctx: &mut context::TrapContext, exception: Exception, 
             // trap by exception will make hart to save the pc which caused the exception
             // so wil must point to the next instruction
             ctx.sepc += 4;
-            ctx.x[10] = syscall(ctx.x[17], ctx.x[10], ctx.x[11], ctx.x[12]) as usize;
+            match syscall(ctx.x[17], ctx.x[10], ctx.x[11], ctx.x[12]) {
+                Ok(code) => ctx.x[10] = code as usize,
+                Err(error) => {
+                    error!("{}", error);
+                    task::exit_current_and_run_other_task();
+                }
+                _ => panic!("Unreachable expression"),
+            }
         }
         // exception about memory fault
         Exception::StoreFault | Exception::StorePageFault => {
-            println!("[kernel] PageFault in application, kernel killed it.");
+            error!("PageFault in application, kernel killed it.");
             task::exit_current_and_run_other_task();
         }
         // apllcation run some illegal instruction
         Exception::IllegalInstruction => {
-            println!("[kernel] IllegalInstruction in application, kernel killed it.");
+            error!("IllegalInstruction in application, kernel killed it.");
             task::exit_current_and_run_other_task();
         }
         _ => {
@@ -66,6 +74,6 @@ pub fn trap_handler(ctx: &mut context::TrapContext) -> &mut context::TrapContext
                 stval
             );
         }
-    }
+    };
     ctx
 }

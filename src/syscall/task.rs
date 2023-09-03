@@ -6,10 +6,11 @@
 // use other mods
 
 // use self mods
+use crate::prelude::*;
 use crate::task;
 
 // yield to other task
-pub fn sys_yield() -> isize {
+pub fn sys_yield() -> Result<isize> {
     task::suspend_current_and_run_other_task();
-    0
+    Ok(0)
 }

@@ -9,8 +9,9 @@
 
 #[cfg(test)]
 pub fn test_runner(tests: &[&dyn Fn()]) -> ! {
-    use crate::{boards::qemu, boards::qemu::QEMUExit, println};
-    println!("Running {} tests", tests.len());
+    use crate::{boards::qemu, boards::qemu::QEMUExit};
+    use log::info;
+    info!("Running {} tests", tests.len());
     for test in tests {
         test();
     }

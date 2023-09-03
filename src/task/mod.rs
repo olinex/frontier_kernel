@@ -14,7 +14,7 @@ use sbi::legacy::shutdown;
 use crate::configs;
 use crate::lang::refs;
 use crate::memory::StackTr;
-use crate::println;
+use crate::prelude::*;
 use crate::trap::context as trap_context;
 
 global_asm!(include_str!("../assembly/riscv64/link_app.asm"));
@@ -126,7 +126,7 @@ impl TaskController {
             let current_task_ctx_ptr = &mut current_task_meta.ctx as *mut context::TaskContext;
             let next_task_ctx_ptr = &self.tasks[next_task_id].ctx as *const context::TaskContext;
             self.current_task = next_task_id;
-            println!("switch task from {} to {}", current_task_id, next_task_id);
+            info!("switch task from {} to {}", current_task_id, next_task_id);
             Some((current_task_ctx_ptr, next_task_ctx_ptr))
         } else {
             None
@@ -182,12 +182,12 @@ impl TaskManager {
 
     // print all application address range like [start, end)
     fn print_app_infos(&self) {
-        println!("[kernel] task count = {}", self.task_count);
+        info!("task count = {}", self.task_count);
         let index_array = unsafe { self.get_address_array() };
         for i in 0..self.task_count {
             let (start_addr, end_addr) = (index_array[i], index_array[i + 1]);
-            println!(
-                "[kernel] app_{} memory range [{:#x}, {:#x}), length = {:#x}",
+            info!(
+                "app_{} memory range [{:#x}, {:#x}), length = {:#x}",
                 i,
                 start_addr as usize,
                 end_addr as usize,
@@ -202,7 +202,7 @@ impl TaskManager {
             drop(controller);
             unsafe { switch::_fn_switch_task(current_ptr, next_ptr) };
         } else {
-            println!("[kernel] All tasks completed!");
+            info!("[kernel] All tasks completed!");
             shutdown();
         }
     }

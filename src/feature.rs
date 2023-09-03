@@ -19,7 +19,7 @@ impl From<usize> for FeatureWord {
         match value {
             32 => FeatureWord::Word32,
             64 => FeatureWord::Word64,
-            _ => panic!("invalid feature word value: {}", value),
+            _ => panic!("Invalid feature word value: {}", value),
         }
     }
 }

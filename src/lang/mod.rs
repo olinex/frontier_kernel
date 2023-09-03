@@ -3,6 +3,7 @@
 
 // self mods
 pub mod console;
+pub mod logger;
 pub mod macros;
 pub mod panic;
 pub mod refs;

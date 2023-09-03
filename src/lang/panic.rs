@@ -15,20 +15,20 @@ use crate::println;
 fn panic(info: &PanicInfo) -> ! {
     match (info.location(), info.message()) {
         (Some(loc), Some(msg)) => {
-            println!("Panicked at {}:{}, cause by {}", loc.file(), loc.line(), msg);
+            println!("[kernel] PANIC AT {}:{}, cause by {}", loc.file(), loc.line(), msg);
         }
         (Some(loc), None) => {
             println!(
-                "Panicked at {}:{}, cause by unknown message",
+                "[kernel] PANIC AT {}:{}, cause by unknown message",
                 loc.file(),
                 loc.line()
             );
         }
         (None, Some(msg)) => {
-            println!("Panicked at unknown location, cause by {}", msg);
+            println!("[kernel] PANIC AT unknown location, cause by {}", msg);
         }
         _ => {
-            println!("Panicked at unknown location, cause by unknown message");
+            println!("[kernel] PANIC AT unknown location, cause by unknown message");
         }
     };
 

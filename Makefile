@@ -101,8 +101,9 @@ $(TEST_KERNEL_ELF): version
 	@echo "####################### build kernel elf #######################"
 	@echo Use $(LINKERLD) $(SOURCE_MEMORY_LINKERLD)
 	@cp $(SOURCE_MEMORY_LINKERLD) $(TARGET_MEMORY_LINKERLD)
-	cargo test $(TEST_COMMAND_ARG) $(MODE_ARG) --no-run
-	mv -f $(SOURCE_TEST_KERNEL_ELF) $(TEST_KERNEL_ELF)
+	@rm -rf $(SOURCE_TEST_KERNEL_ELF)
+	@cargo test $(TEST_COMMAND_ARG) $(MODE_ARG) --no-run
+	@mv -f $(SOURCE_TEST_KERNEL_ELF) $(TEST_KERNEL_ELF)
 	@rm $(TARGET_MEMORY_LINKERLD)
 	@echo "\n\n\n"
 

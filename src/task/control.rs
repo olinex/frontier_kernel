@@ -119,7 +119,7 @@ impl TaskController {
             let current_task_ctx_ptr = &mut current_task_meta.ctx as *mut context::TaskContext;
             let next_task_ctx_ptr = &self.tasks[next_task_id].ctx as *const context::TaskContext;
             self.current_task = next_task_id;
-            println!("switch task from {} to {}", current_task_id, next_task_id);
+            info!("switch task from {} to {}", current_task_id, next_task_id);
             Some((current_task_ctx_ptr, next_task_ctx_ptr))
         } else {
             None
