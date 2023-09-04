@@ -20,7 +20,7 @@ LINKERLD := $(LINKER_DIR)/$(ISA)/$(SBI).ld
 DISASM_TMP := $(TARGET_DIR)/$(MODE)/asm
 KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
-SOURCE_TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/deps/frontier_kernel-*[^\.d]
+SOURCE_TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/deps/frontier_kernel-*
 TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel_unittest
 TEST_KERNEL_BIN := $(TEST_KERNEL_ELF).bin
 
@@ -103,6 +103,7 @@ $(TEST_KERNEL_ELF): version
 	@cp $(SOURCE_MEMORY_LINKERLD) $(TARGET_MEMORY_LINKERLD)
 	@rm -rf $(SOURCE_TEST_KERNEL_ELF)
 	@cargo test $(TEST_COMMAND_ARG) $(MODE_ARG) --no-run
+	@rm -rf $(SOURCE_TEST_KERNEL_ELF).d
 	@mv -f $(SOURCE_TEST_KERNEL_ELF) $(TEST_KERNEL_ELF)
 	@rm $(TARGET_MEMORY_LINKERLD)
 	@echo "\n\n\n"
@@ -142,6 +143,15 @@ debug-with-qemu: build
 		tmux split-window -h "$(ISA)-unknown-elf-gdb-py -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
 
+clear:
+	@rm -rf $(TARGET_MEMORY_LINKERLD) \
+		$(DISASM_TMP) \
+		$(KERNEL_ELF) \
+		$(KERNEL_BIN) \
+		$(SOURCE_TEST_KERNEL_ELF) \
+		$(TEST_KERNEL_ELF) \
+		$(TEST_KERNEL_BIN)
+
 .PHONY: \
 	env \
 	version \
@@ -155,5 +165,6 @@ debug-with-qemu: build
 	build-test \
 	run-with-qemu \
 	test-with-qemu \
-	debug-with-qemu
+	debug-with-qemu \
+	clear
 

@@ -26,7 +26,7 @@ mod task;
 mod trap;
 
 // re export commonly used modules or functions
-pub mod prelude {
+mod prelude {
     pub use log::*;
     pub use crate::error::*;
     pub use crate::{print, println};
@@ -41,6 +41,7 @@ cfg_if! {
     }
 }
 
+// will be called in [`./assembly/riscv64/entry.asm`]
 // for avoid rust main entrypoint symbol be confused by compiler
 cfg_if! {
     if #[cfg(test)] {

@@ -4,25 +4,17 @@
 // self mods
 
 // use other mods
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{LevelFilter, Metadata, Record};
 
 // use self mods
 use crate::configs;
 use crate::println;
 
-pub struct KernelLogger {
-    level: Level,
-}
-
-impl KernelLogger {
-    pub const fn new(level: Level) -> Self {
-        Self { level }
-    }
-}
+pub struct KernelLogger;
 
 impl log::Log for KernelLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= self.level
+        metadata.level() <= configs::LOG_LEVEL
     }
 
     fn log(&self, record: &Record) {
@@ -34,7 +26,7 @@ impl log::Log for KernelLogger {
     fn flush(&self) {}
 }
 
-static LOGGER: KernelLogger = KernelLogger::new(configs::LOG_LEVEL);
+static LOGGER: KernelLogger = KernelLogger;
 
 pub fn init() {
     if let Err(error) = log::set_logger(&LOGGER) {
