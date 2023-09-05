@@ -15,21 +15,21 @@ use core::arch::global_asm;
 
 // use self mods
 #[macro_use]
-mod feature;
 mod boards;
 mod configs;
 mod error;
 mod lang;
 mod memory;
+mod sbi;
 mod syscall;
 mod task;
 mod trap;
 
 // re export commonly used modules or functions
 mod prelude {
-    pub use log::*;
     pub use crate::error::*;
     pub use crate::{print, println};
+    pub use log::*;
 }
 
 // load assembly file and do init
@@ -37,7 +37,7 @@ cfg_if! {
     if #[cfg(target_arch = "riscv64")] {
         global_asm!(include_str!("./assembly/riscv64/entry.asm"));
     } else {
-        compile_error!("Unkown target_arch to load entry.asm from ./assembly");
+        compile_error!("Unknown target_arch to load entry.asm from ./assembly");
     }
 }
 

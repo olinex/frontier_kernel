@@ -14,7 +14,7 @@ cfg_if! {
     if #[cfg(target_arch = "riscv64")] {
         global_asm!(include_str!("../assembly/riscv64/switch.asm"));
     } else {
-        compile_error!("Unkown target_arch to load switch.asm from ./assembly");
+        compile_error!("Unknown target_arch to load switch.asm from ./assembly");
     }
 }
 

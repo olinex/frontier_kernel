@@ -6,11 +6,11 @@
 // use other mods
 
 // use self mods
+use super::context;
 use crate::configs;
 use crate::memory::StackTr;
-use crate::println;
+use crate::prelude::*;
 use crate::trap::context as trap_context;
-use super::context;
 
 pub fn get_base_address(task_id: usize) -> usize {
     configs::APP_BASE_ADDRESS + task_id * configs::APP_SIZE_LIMIT
@@ -54,12 +54,17 @@ impl TaskMeta {
     }
 
     #[inline]
+    pub fn ctx(&self) -> &context::TaskContext {
+        &self.ctx
+    }
+
+    #[inline]
     fn mark_suspended(&mut self) {
         self.status = TaskStatus::Suspended;
     }
 
     #[inline]
-    fn mark_running(&mut self) {
+    pub fn mark_running(&mut self) {
         self.status = TaskStatus::Running;
     }
 
@@ -70,13 +75,13 @@ impl TaskMeta {
 }
 
 pub struct TaskController {
-    tasks: [TaskMeta; configs::MAX_APP_NUM],
+    tasks: [TaskMeta; configs::MAX_TASK_NUM],
     current_task: usize,
 }
 
 impl TaskController {
-    fn new(task_count: usize) -> Self {
-        let mut tasks = [TaskMeta::new(); configs::MAX_APP_NUM];
+    pub fn new(task_count: usize) -> Self {
+        let mut tasks = [TaskMeta::new(); configs::MAX_TASK_NUM];
         for task_id in 0..task_count {
             tasks[task_id] = TaskMeta::init(task_id);
         }
@@ -84,6 +89,11 @@ impl TaskController {
             tasks,
             current_task: 0,
         }
+    }
+
+    #[inline]
+    pub fn first_task_meta(&mut self) -> &mut TaskMeta {
+        &mut self.tasks[0]
     }
 
     #[inline]

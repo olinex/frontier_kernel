@@ -4,8 +4,8 @@
 // self mods
 
 // use other mods
-use thiserror_no_std::Error;
 use enum_group::EnumGroup;
+use thiserror_no_std::Error;
 
 // use self mods
 
@@ -18,9 +18,6 @@ pub enum KernelError {
     #[groups(syscall)]
     #[error("[kernel] Invalid File descriptor label: {0}")]
     InvalidFileDescriptor(usize),
-
-    #[error("[kernel] Unknown error catched")]
-    Unknown,
 }
 
 pub type Result<T> = core::result::Result<T, KernelError>;

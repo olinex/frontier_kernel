@@ -5,20 +5,20 @@
 
 // use other mods
 use core::fmt::{self, Write};
-use sbi;
 
 // use self mods
-
-struct Stdout;
+use crate::sbi::*;
 
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {
-            sbi::legacy::console_putchar(c as u8);
+            SBI::console_putchar(c as u8);
         }
         Ok(())
     }
 }
+
+struct Stdout;
 
 // impl rust buildin print function
 pub fn print(args: fmt::Arguments) {

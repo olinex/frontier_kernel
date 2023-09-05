@@ -8,6 +8,7 @@ pub mod macros;
 pub mod panic;
 pub mod refs;
 pub mod test;
+pub mod timer;
 
 // use other mods
 

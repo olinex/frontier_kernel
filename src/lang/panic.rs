@@ -5,17 +5,22 @@
 
 // use other mods
 use core::panic::PanicInfo;
-use sbi;
 
 // use self mods
 use crate::println;
+use crate::sbi::*;
 
 // panic handler must end the process and return noting
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     match (info.location(), info.message()) {
         (Some(loc), Some(msg)) => {
-            println!("[kernel] PANIC AT {}:{}, cause by {}", loc.file(), loc.line(), msg);
+            println!(
+                "[kernel] PANIC AT {}:{}, cause by {}",
+                loc.file(),
+                loc.line(),
+                msg
+            );
         }
         (Some(loc), None) => {
             println!(
@@ -31,6 +36,5 @@ fn panic(info: &PanicInfo) -> ! {
             println!("[kernel] PANIC AT unknown location, cause by unknown message");
         }
     };
-
-    sbi::legacy::shutdown()
+    SBI::shutdown()
 }
