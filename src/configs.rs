@@ -12,6 +12,7 @@ use log::Level;
 pub const MAX_TASK_NUM: usize = 16;
 pub const USER_STACK_SIZE: usize = 1024 * 8;
 pub const KERNEL_STACK_SIZE: usize = 1024 * 4;
+pub const KERNEL_HEAP_SIZE: usize = 1024 * 1024 * 10;
 pub const APP_BASE_ADDRESS: usize = 0x80_400_000;
 pub const APP_SIZE_LIMIT: usize = 0x20_000;
 pub const TICKS_PER_SEC: usize = 100;

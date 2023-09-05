@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 #![feature(panic_info_message)]
+#![feature(alloc_error_handler)]
 #![feature(custom_test_frameworks)]
 #![test_runner(lang::test::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -47,6 +48,9 @@ cfg_if! {
     if #[cfg(test)] {
         #[no_mangle]
         fn main() -> () {
+            lang::logger::init();
+            memory::init();
+            trap::init();
             // for testing in qemu
             test_main()
         }
@@ -60,8 +64,8 @@ cfg_if! {
 
 #[inline]
 pub fn run() -> ! {
-    memory::clear_bss();
     lang::logger::init();
+    memory::init();
     trap::init();
     task::init();
     task::run();

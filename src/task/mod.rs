@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 
 // use self mods
 use crate::configs;
-use crate::lang::refs;
+use crate::lang::container;
 use crate::prelude::*;
 use crate::sbi::*;
 
@@ -28,7 +28,7 @@ cfg_if! {
 pub struct TaskManager {
     task_count: usize,
     start_address: usize,
-    controller: refs::UPSafeCell<control::TaskController>,
+    controller: container::UPSafeCell<control::TaskController>,
 }
 
 impl TaskManager {
@@ -36,7 +36,7 @@ impl TaskManager {
         Self {
             task_count: app_count,
             start_address,
-            controller: unsafe { refs::UPSafeCell::new(controller) },
+            controller: unsafe { container::UPSafeCell::new(controller) },
         }
     }
 

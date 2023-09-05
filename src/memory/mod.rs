@@ -2,6 +2,7 @@
 // @time:      2023/08/14
 
 // self mods
+pub mod heap;
 pub mod stack;
 
 // use other mods
@@ -19,8 +20,7 @@ pub trait StackTr {
 }
 
 // init bss section to zero is very import when kernel was initializing
-#[inline]
-pub fn clear_bss() {
+fn clear_bss() {
     extern "C" {
         // load bss start address by symbol name
         fn _addr_bss_start();
@@ -30,4 +30,9 @@ pub fn clear_bss() {
     // force set all byte to zero
     (_addr_bss_start as usize.._addr_bss_end as usize)
         .for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
+}
+
+pub fn init() {
+    clear_bss();
+    heap::init_heap();
 }

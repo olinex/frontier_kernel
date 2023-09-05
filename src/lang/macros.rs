@@ -20,13 +20,3 @@ macro_rules! println {
         $crate::lang::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?));
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::println;
-    
-    #[test_case]
-    fn test() {
-        println!("hello, unittest case");
-    }
-}
