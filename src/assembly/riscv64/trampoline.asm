@@ -9,14 +9,13 @@
 .macro LOAD_GENERAL_PURPOSE_REGISTER n
     ld x\n, \n*WORD_SIZE(sp)
 .endm
-    .section .text
+    .section .text.trampoline
     .global _fn_save_all_registers_before_trap
     .global _fn_restore_all_registers_after_trap
 // make align for function pointer address which was strict by riscv
     .align 4
-// define a function which will save all general purpose register to kernel memory stack
+// define a function which will save all general purpose register/sstatus/sepc to kernel memory stack
 _fn_save_all_registers_before_trap:
-    // csrrw rd, csr, rs
     // which will save csr value to rd and save rs value to csr
     // this instruction in here will swap the value of the sp and sscratch
     // now sp->kernel stack, sscratch->user stack
@@ -48,28 +47,39 @@ _fn_save_all_registers_before_trap:
     // because before trap back to user mode, we must know where to jump
     csrr t2, sscratch
     sd t2, 2*WORD_SIZE(sp)
-    // set input argument of trap_handler(cx: &mut TrapContext)
-    // trap_handler require TrapContext as argument
-    // we have mallocated and inited it by hand
-    // so we bass the stack top pointer to the handler
-    mv a0, sp
+    // load kernel satp into t0
+    ld t0, 34*WORD_SIZE(sp)
+    // load trap handler virtual memory address into t1
+    ld t1, 35*WORD_SIZE(sp)
+    // load kernel stack pointer into sp
+    ld sp, 36*WORD_SIZE(sp)
+    // switch to kernel space
+    csrw satp, t0
+    // refersh tlb
+    sfence.vma
+    // jump to trap_handler
+    // we cannot use `call trap_handler` here
+    // because when we use `call`, the virtual address will be calculated with the pc and diff
+    jr t1
     // if everything is fine trap_handler will return and run next instruction
-    call trap_handler
-// define a function that will restore all register values from memory
-// this function will be called by two cases:
-// case1: back to U after `call trap_handler`, in this case the next instrction, `mv sp, a0`, is useless
-// case2: back to U after at first 
+// define a function that will restore all general purpose register/sstatus/sepc values from memory
 _fn_restore_all_registers_after_trap:
-    # mv sp, a0
+    // a0: *TrapContext in user space(Constant)
+    // a1: user space mmu token
+    // switch to user space
+    csrw satp, a1
+    // refresh tlb
+    sfence.vma
+    // keep origin user's *TrapContext stack pointer
+    csrw sscratch, a0
+    // switch stack to user's *TrapContext
+    mv sp, a0
     // read sstatus value from memory and save it to register
     ld t0, 32*WORD_SIZE(sp)
     csrw sstatus, t0
     // read sepc value from memory and save it to register
     ld t1, 33*WORD_SIZE(sp)
     csrw sepc, t1
-    // read sscratch value from memory and save it to register
-    ld t2, 2*WORD_SIZE(sp)
-    csrw sscratch, t2
     // restore general purpuse registers except zero/sp
     ld ra, 1*WORD_SIZE(sp)
     ld gp, 3*WORD_SIZE(sp)
@@ -78,8 +88,6 @@ _fn_restore_all_registers_after_trap:
         LOAD_GENERAL_PURPOSE_REGISTER %n
         .set n, n+1
     .endr
-    // release TrapContext on kernel stack
-    addi sp, sp, 34*WORD_SIZE
-    # now sp->kernel stack, sscratch->user stack
-    csrrw sp, sscratch, sp
+    // back to user stack
+    ld sp, 2*WORD_SIZE(sp)
     sret

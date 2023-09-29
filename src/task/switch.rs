@@ -4,14 +4,13 @@
 // self mods
 
 // use other mods
-use cfg_if::cfg_if;
 use core::arch::global_asm;
 
 // use self mods
 use super::context::TaskContext;
 
 cfg_if! {
-    if #[cfg(target_arch = "riscv64")] {
+    if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
         global_asm!(include_str!("../assembly/riscv64/switch.asm"));
     } else {
         compile_error!("Unknown target_arch to load switch.asm from ./assembly");

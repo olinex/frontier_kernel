@@ -28,12 +28,12 @@ _fn_switch_task:
     # stage [3]
     # restore ra & s0~s11 of next execution
     ld ra, 0(a1)
-    # restore kernel stack of next task
-    ld sp, WORD_SIZE(a1)
     .set n, 0
     .rept 12
         LOAD_CALLEE_SAVE_REGISTER %n
         .set n, n + 1
     .endr
+    # restore kernel stack of next task
+    ld sp, WORD_SIZE(a1)
     # stage [4]
     ret

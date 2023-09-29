@@ -20,7 +20,7 @@ _fn_start:
     .global _addr_bootstack_smaller_bound
 _addr_bootstack_smaller_bound:
     // malloc 64 KiB space as boot stack
-    .space 1024 * 64
+    .space 1024 * 128
     // declare a global symbol '_addr_bootstack_bigger_bound'
     .global _addr_bootstack_bigger_bound
 _addr_bootstack_bigger_bound:

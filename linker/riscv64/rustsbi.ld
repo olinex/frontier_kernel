@@ -9,21 +9,27 @@ INCLUDE memory.ld
 
 SECTIONS
 {
-    /* declare kernel start address */
-    PROVIDE(_addr_kernel_start = .);
-
-    /*  the first section was code text */
-    /* declare the .text section distribution */
+    /*  
+        the first section was code text 
+        declare the .text section distribution
+    */
     .text : {
         PROVIDE(_addr_text_start = .);
-        /* sub sction .text.entry will be the first part of .text section */
+        /* sub section .text.entry will be the first part of .text section */
         *(.text.entry)
+        . = ALIGN(4k);
+        /* sub section .text.trampoline */
+        PROVIDE(_fn_trampoline = .);
+        *(.text.trampoline)
+        . = ALIGN(4k);
+        /* other kernel code section .text */
         *(.text .text.*)
         PROVIDE(_addr_text_end = .);
     } > RAM
 
     /* declare inited read only data section */
     .rodata : {
+        . = ALIGN(4k);
         PROVIDE(_addr_rodata_start = .);
         *(.rodata .rodata.*)
         PROVIDE(_addr_rodata_end = .);
@@ -31,6 +37,7 @@ SECTIONS
 
     /* declare inited read write data section */
     .data : {
+        . = ALIGN(4k);
         PROVIDE(_addr_data_start = .);
         *(.data .data.*)
         PROVIDE(_addr_data_end = .);
@@ -38,19 +45,22 @@ SECTIONS
 
     /* declare uninit data section */
     .bss : {
+        . = ALIGN(4k);
         PROVIDE(_addr_bss_start = .);
         *(.bss .bss.*)
         /* sub section .bss.bootstack was defined in src/assemble/entry.asm  */
         *(.bss.bootstack)
         PROVIDE(_addr_bss_end = .);
     } > RAM
-    /* ======== bss ======== */
 
-    PROVIDE(_addr_kernel_end = .);
-    PROVIDE(_addr_memory_start = ORIGIN(RAM));
-    PROVIDE(_addr_memory_end = _addr_memory_start + LENGTH(RAM));
-    PROVIDE(_addr_heap_start = _addr_kernel_end);
-    PROVIDE(_size_heap = _addr_memory_end - _addr_kernel_end);
+    PROVIDE(_addr_mem_start = ORIGIN(RAM));
+    PROVIDE(_addr_mem_end = _addr_mem_start + LENGTH(RAM));
+    PROVIDE(_addr_kernel_mem_start = _addr_mem_start);
+    PROVIDE(_addr_kernel_mem_end = .);
+    /* insert a guard page between kernel code and free memory */
+    . = ALIGN(8k);
+    PROVIDE(_addr_free_mem_start = .);
+    PROVIDE(_addr_free_mem_end = _addr_mem_end);
     /DISCARD/ : {
         *(.eh_frame)
     }

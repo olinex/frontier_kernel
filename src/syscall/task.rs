@@ -11,6 +11,6 @@ use crate::task;
 
 // yield to other task
 pub fn sys_yield() -> Result<isize> {
-    task::suspend_current_and_run_other_task();
+    task::suspend_current_and_run_other_task()?;
     Ok(0)
 }

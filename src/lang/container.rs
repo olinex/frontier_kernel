@@ -4,19 +4,19 @@
 // self mods
 
 // use other mods
-use core::cell::{RefCell, RefMut};
+use core::cell::{Ref, RefCell, RefMut};
 
 // use self mods
 
-pub struct UPSafeCell<T> {
+pub struct UserPromiseRefCell<T> {
     // inner data
     inner: RefCell<T>,
 }
 
 // force mark UPSafeCell as a Sync safe struct
-unsafe impl<T> Sync for UPSafeCell<T> {}
+unsafe impl<T> Sync for UserPromiseRefCell<T> {}
 
-impl<T> UPSafeCell<T> {
+impl<T> UserPromiseRefCell<T> {
     // User is responsible to guarantee that inner struct is only used in uniprocessor.
     pub unsafe fn new(value: T) -> Self {
         Self {
@@ -26,5 +26,9 @@ impl<T> UPSafeCell<T> {
     // Panic if the data has been borrowed.
     pub fn exclusive_access(&self) -> RefMut<'_, T> {
         self.inner.borrow_mut()
+    }
+    // only read borrowed
+    pub fn access(&self) -> Ref<'_, T> {
+        self.inner.borrow()
     }
 }
