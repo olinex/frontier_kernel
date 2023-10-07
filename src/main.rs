@@ -36,7 +36,7 @@ extern crate riscv;
 use core::arch::global_asm;
 
 // use self mods
-mod boards;
+// mod boards;
 mod configs;
 mod lang;
 mod memory;

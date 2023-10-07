@@ -27,8 +27,6 @@
 //!   |        * restore sstatus/sepc/other generated registers
 //!   |        * swtich stack to current task's user stack
 //!   |        * Jump to current task's entry point
-//!   |
-//!   |        *
 
 // @author:    olinex
 // @time:      2023/09/01

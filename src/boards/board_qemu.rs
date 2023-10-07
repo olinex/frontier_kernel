@@ -8,6 +8,7 @@
 use core::arch::asm;
 
 // use self mods
+use super::Exit;
 
 const VIRT_TEST: u64 = 0x100000;
 const EXIT_FAILURE_FLAG: isize = 0x3333;
@@ -31,39 +32,6 @@ pub enum ExitStatus {
     Other(u32),
 }
 
-pub trait QEMUExit {
-    // Exit with specified return code.
-    //
-    // Note: For `X86`, code is binary-OR'ed with `0x1` inside QEMU.
-    fn exit(&self, status: ExitStatus) -> !;
-
-    // Exit QEMU using `Success`, aka `0`, if possible.
-    //
-    // Note: Not possible for `X86`.
-    #[inline]
-    fn exit_success(&self) -> ! {
-        self.exit(ExitStatus::QEMU(QEMUExitStatus::Success));
-    }
-
-    // Exit QEMU using `Failure`, aka `1`.
-    #[inline]
-    fn exit_failure(&self) -> ! {
-        self.exit(ExitStatus::QEMU(QEMUExitStatus::Failure));
-    }
-
-    // Exit QEMU using `Reset`, aka `2`.
-    #[inline]
-    fn exit_reset(&self) -> ! {
-        self.exit(ExitStatus::QEMU(QEMUExitStatus::Reset));
-    }
-
-    // Exit QEMU using `Other`, aka `3`.
-    #[inline]
-    fn exit_other(&self, code: u32) -> ! {
-        self.exit(ExitStatus::Other(code));
-    }
-}
-
 // RISCV64 configuration
 pub struct RISCV64 {
     // Address of the sifive_test mapped device.
@@ -75,9 +43,7 @@ impl RISCV64 {
     pub const fn new(addr: u64) -> Self {
         RISCV64 { addr }
     }
-}
 
-impl QEMUExit for RISCV64 {
     // Exit qemu with specified exit code.
     fn exit(&self, status: ExitStatus) -> ! {
         // If code is not a special value, we need to encode it with EXIT_FAILURE_FLAG.
@@ -101,6 +67,34 @@ impl QEMUExit for RISCV64 {
                 asm!("wfi", options(nomem, nostack));
             }
         }
+    }
+}
+
+impl Exit for RISCV64 {
+    // Exit QEMU using `Success`, aka `0`, if possible.
+    //
+    // Note: Not possible for `X86`.
+    #[inline]
+    fn exit_success(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Success));
+    }
+
+    // Exit QEMU using `Failure`, aka `1`.
+    #[inline]
+    fn exit_failure(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Failure));
+    }
+
+    // Exit QEMU using `Reset`, aka `2`.
+    #[inline]
+    fn exit_reset(&self) -> ! {
+        self.exit(ExitStatus::QEMU(QEMUExitStatus::Reset));
+    }
+
+    // Exit QEMU using `Other`, aka `3`.
+    #[inline]
+    fn exit_other(&self, code: usize) -> ! {
+        self.exit(ExitStatus::Other(code as u32));
     }
 }
 

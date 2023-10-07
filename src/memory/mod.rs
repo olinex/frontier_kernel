@@ -23,6 +23,7 @@ use crate::configs;
 use crate::prelude::*;
 use page_table::PageTable;
 
+/// Alias of the page bytes array
 pub type PageBytes = [u8; configs::MEMORY_PAGE_BYTE_SIZE];
 
 lazy_static! {
@@ -130,7 +131,7 @@ pub fn print_memory_info() {
     );
 }
 
-// init bss section to zero is very import when kernel was initializing
+// Initially make bss section to zero is very import when kernel was initializing
 pub fn clear_bss() {
     // force set all byte to zero
     (configs::_addr_bss_start as usize..configs::_addr_bss_end as usize)

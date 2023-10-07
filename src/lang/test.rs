@@ -9,13 +9,13 @@
 
 #[cfg(test)]
 pub fn test_runner(tests: &[&dyn Fn()]) -> ! {
-    use crate::{boards::qemu, boards::qemu::QEMUExit};
+    use crate::sbi::*;
     info!("Running {} tests", tests.len());
     for test in tests {
         test();
     }
     info!("Successfully Finished {} tests", tests.len());
-    qemu::QEMU_EXIT_HANDLE.exit_success()
+    SBI::shutdown()
 }
 
 #[cfg(test)]
