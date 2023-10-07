@@ -52,8 +52,7 @@ mod tests {
 
     #[test_case]
     fn test_vector() {
-        use alloc::vec::Vec;
-        let mut v: Vec<usize> = Vec::new();
+        let mut v = vec![];
         for i in 0..500 {
             v.push(i);
         }

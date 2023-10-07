@@ -23,10 +23,14 @@ pub const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADDR - MEM
 pub const TICKS_PER_SEC: usize = 100;
 pub const LOG_LEVEL: Level = Level::Info;
 
-// the frequency of the board clock in Hz
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {
+        // the frequency of the board clock in Hz
         pub const BOARD_CLOCK_FREQ: usize = 12_500_000;
+        // the memory-mapped io registers virtual address range
+        pub const MMIO: &[(usize, usize)] = &[
+            (0x0010_0000, 0x0010_2000)
+        ];
     } else {
         compile_error!("Unknown feature for board");
     }

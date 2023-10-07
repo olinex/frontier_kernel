@@ -16,27 +16,31 @@ use crate::prelude::*;
 use crate::sbi::*;
 use crate::trap::context::TrapContext;
 
+/// The execution status of the task
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TaskStatus {
-    UnInit,
     Ready,
     Running,
     Suspended,
     Exited,
 }
 
+/// The meta information of the task
 pub struct TaskMeta {
-    /// The unique identifier of the task
-    /// Task kernel stack's virtual page number was calculated with it
     status: TaskStatus,
     task_ctx: TaskContext,
     space: Space,
     /// The physical page number which saved the task's trap context
+    #[allow(dead_code)]
     trap_ctx_ppn: usize,
     /// The size of the task's using virtual address from 0x00 to the top of the user stack
+    #[allow(dead_code)]
     base_size: usize,
 }
 impl TaskMeta {
+    /// Help function for helping the trap context from task's virtual address space
+    /// # Arguments
+    /// * space: the virtual address space
     fn get_trap_ctx(space: &Space) -> Result<&mut TrapContext> {
         let trap_ctx_area = space.get_trap_context_area()?;
         let (trap_ctx_vpn, _) = trap_ctx_area.range();
@@ -44,6 +48,14 @@ impl TaskMeta {
         Ok(trap_ctx)
     }
 
+    /// Create a new task meta
+    ///
+    /// # Arguments
+    /// * task_id: the unique id for each task
+    /// * data: the byte data of the task
+    ///
+    /// # Returns
+    /// * Ok(TaskMeta)
     fn new(task_id: usize, data: &[u8]) -> Result<Self> {
         let (space, user_stack_top_va, kernel_stack_top_va, entry_point) =
             KERNEL_SPACE::new_task_from_elf(task_id, data)?;
@@ -58,7 +70,7 @@ impl TaskMeta {
             user_stack_top_va,
             kernel_stack_top_va,
         );
-        let mut task_ctx = TaskContext::new();
+        let mut task_ctx = TaskContext::empty();
         task_ctx.goto_trap_return(kernel_stack_top_va);
         Ok(Self {
             status: TaskStatus::Ready,
@@ -67,6 +79,11 @@ impl TaskMeta {
             trap_ctx_ppn,
             base_size: user_stack_top_va,
         })
+    }
+
+    #[inline(always)]
+    pub fn space(&self) -> &Space {
+        &self.space
     }
 
     #[inline(always)]
@@ -112,54 +129,84 @@ impl Drop for TaskMeta {
     }
 }
 
+#[repr(C)]
+pub struct TaskRange {
+    pub start: usize,
+    pub end: usize,
+}
+
 pub struct TaskController {
     tasks: BTreeMap<usize, TaskMeta>,
     current_task: usize,
 }
 
 impl TaskController {
-    // This function looks so strange that it accepts the RefMut of Self.
-    // Because we will change the controller and never return back.
-    // So we need a mutable reference for controller itself but which never dropped automatically
-    // That why we need a RefMut and drop it before switching to another task
+    /// This function looks so strange that it accepts the RefMut of Self.
+    /// Because we will change the controller and never return back.
+    /// So we need a mutable reference for controller itself but which never dropped automatically
+    /// That why we need a RefMut and drop it before switching to another task
+    ///
+    /// # Arguments
+    /// * ref_mut: the mutable reference to the task conroller
     pub fn run_first_task(mut ref_mut: RefMut<'_, Self>) -> ! {
-        let mut unused_current_task = TaskContext::new();
-        let current_task_ctx_ptr = &mut unused_current_task as *mut TaskContext;
         if let Some((_, next_task)) = ref_mut.first_task_meta() {
             next_task.mark_running();
             let next_task_ctx_ptr = next_task.task_ctx() as *const TaskContext;
             drop(ref_mut);
             unsafe {
-                switch::_fn_switch_task(current_task_ctx_ptr, next_task_ctx_ptr);
+                switch::_fn_run_first_task(next_task_ctx_ptr);
             }
         }
         panic!("Unreachable code Cause by run_first_task");
     }
 
-    pub fn new(start_ddress: usize, task_count: usize) -> Result<Self> {
+    pub fn run_other_task(mut ref_mut: RefMut<'_, Self>) {
+        if let Ok((current_ptr, next_ptr)) = ref_mut.prepare_other_task() {
+            drop(ref_mut);
+            unsafe { switch::_fn_switch_task(next_ptr, current_ptr) };
+        } else {
+            info!("[kernel] All tasks completed!");
+            SBI::shutdown();
+        }
+    }
+
+    pub fn suspend_current_and_run_other_task(mut ref_mut: RefMut<'_, Self>) -> Result<()> {
+        ref_mut.mark_current_task_suspended()?;
+        Self::run_other_task(ref_mut);
+        Ok(())
+    }
+
+    pub fn exit_current_and_run_other_task(mut ref_mut: RefMut<'_, Self>) -> Result<()> {
+        ref_mut.mark_current_task_exited()?;
+        Self::run_other_task(ref_mut);
+        Ok(())
+    }
+
+    /// Create a new task controller, which will load the task code and create the virtual address space
+    ///
+    /// # Arguments
+    /// * task_ranges: the slice of the task ranges which contain the task code's start and end physical addresses
+    ///
+    /// # Returns
+    /// Ok(TaskController)
+    pub fn new(task_ranges: &[TaskRange]) -> Result<Self> {
         let mut tasks = BTreeMap::new();
-        let address_array =
-            unsafe { core::slice::from_raw_parts(start_ddress as *const usize, task_count + 1) };
 
         // clear i-cache first
         unsafe { SBI::fence_i() };
 
         // load apps
-        info!("task count = {}", task_count);
-        for i in 0..task_count {
+        info!("task count = {}", task_ranges.len());
+        for (i, range) in task_ranges.iter().enumerate() {
             // load app from data section to memory
-            let (start_addr, end_addr) = (address_array[i], address_array[i + 1]);
+            let length = range.end - range.start;
             info!(
                 "app_{} memory range [{:#x}, {:#x}), length = {:#x}",
-                i,
-                start_addr as usize,
-                end_addr as usize,
-                end_addr as usize - start_addr as usize
+                i, range.start, range.end, length
             );
-            let src = unsafe {
-                core::slice::from_raw_parts(start_addr as *const u8, end_addr - start_addr)
-            };
-            // create task
+            // load task's code in byte slice
+            let src = unsafe { core::slice::from_raw_parts(range.start as *const u8, length) };
+            // create a new task meta
             let task = TaskMeta::new(i, src)?;
             tasks.insert(i, task);
         }
@@ -182,6 +229,11 @@ impl TaskController {
         self.tasks
             .get_mut(&self.current_task)
             .ok_or(KernelError::TaskNotFound(self.current_task))
+    }
+
+    #[inline(always)]
+    pub fn current_space(&self) -> Result<&Space> {
+        Ok(self.current_task_meta()?.space())
     }
 
     pub fn get_current_user_token(&self) -> Result<usize> {
@@ -238,26 +290,5 @@ impl TaskController {
         } else {
             Err(KernelError::NoRunableTasks)
         }
-    }
-
-    pub fn run_other_task(&mut self) {
-        if let Ok((current_ptr, next_ptr)) = self.prepare_other_task() {
-            unsafe { switch::_fn_switch_task(current_ptr, next_ptr) };
-        } else {
-            info!("[kernel] All tasks completed!");
-            SBI::shutdown();
-        }
-    }
-
-    pub fn suspend_current_and_run_other_task(&mut self) -> Result<()> {
-        self.mark_current_task_suspended()?;
-        self.run_other_task();
-        Ok(())
-    }
-
-    pub fn exit_current_and_run_other_task(&mut self) -> Result<()> {
-        self.mark_current_task_exited()?;
-        self.run_other_task();
-        Ok(())
     }
 }

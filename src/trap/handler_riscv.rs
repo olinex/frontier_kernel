@@ -6,12 +6,11 @@
 // use other mods
 use core::arch::{asm, global_asm};
 use riscv::register::{
-    scause::{self, Exception, Trap, Interrupt},
-    stval
+    scause::{self, Exception, Interrupt, Trap},
+    stval,
 };
 
 // use self mods
-use super::context;
 use crate::lang::timer;
 use crate::sbi::*;
 use crate::syscall::syscall;
@@ -34,14 +33,18 @@ cfg_if! {
             timer::set_next_trigger();
         }
 
+        /// Set `trap_from_kernel` function as the trap handler entry point
+        /// This function just panic so that we force disable the ability of the trap
         pub fn set_kernel_trap_entry() {
             unsafe {SBI::set_direct_trap_vector(trap_from_kernel as usize)}
         }
 
-        fn set_user_trap_entry() {
+        /// Set trampoline code as the trap handler entry point which code is written in the file [assembly/trampoline.asm].
+        pub fn set_user_trap_entry() {
             unsafe {SBI::set_direct_trap_vector(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR)}
         }
 
+        /// A help function for trap handler which force disable the trap.
         #[no_mangle]
         pub fn trap_from_kernel() -> ! {
             panic!("a trap from kernel!");
@@ -51,10 +54,11 @@ cfg_if! {
         pub fn trap_return() -> ! {
             set_user_trap_entry();
             let trap_ctx_va = configs::TRAP_CTX_VIRTUAL_BASE_ADDR;
-            let user_mmu_token = task::TASK_CONTROLLER
-                .access()
+            let controller = task::TASK_CONTROLLER.access();
+            let user_mmu_token = controller
                 .get_current_user_token()
                 .unwrap();
+            drop(controller);
             extern "C" {
                 fn _fn_save_all_registers_before_trap();
                 fn _fn_restore_all_registers_after_trap();
@@ -62,9 +66,9 @@ cfg_if! {
             let restore_va = _fn_restore_all_registers_after_trap as usize
                 - _fn_save_all_registers_before_trap as usize
                 + configs::TRAMPOLINE_VIRTUAL_BASE_ADDR;
+            unsafe {SBI::fence_i()};
             unsafe {
                 asm!(
-                    "fence.i",
                     "jr {restore_va}",
                     restore_va = in(reg) restore_va,
                     in("a0") trap_ctx_va,
@@ -79,15 +83,30 @@ cfg_if! {
         // 2. some exceptions were thrown, handler will kill the application and continue
         // 3. other exceptions were thrown and the kernel was panic
         #[inline(always)]
-        fn exception_trap_handler(ctx: &mut context::TrapContext, exception: Exception, stval: usize) {
+        fn exception_trap_handler(exception: Exception, stval: usize) {
             match exception {
                 // UEE make ecalls
                 Exception::UserEnvCall => {
-                    // trap by exception will make hart to save the pc which caused the exception
-                    // so supervisor exeption pc must point to the next instruction
+                    // extract the trap context's register value
+                    // we must drop the controller and trap context's reference immediately,
+                    // because in syscall function will borrow it too soon
+                    let controller = task::TASK_CONTROLLER.access();
+                    let ctx = controller.get_current_trap_ctx().unwrap();
+                    let syscall_id = ctx.x[17];
+                    let arg1 = ctx.x[10];
+                    let arg2 = ctx.x[11];
+                    let arg3 = ctx.x[12];
                     ctx.sepc += 4;
-                    match syscall(ctx.x[17], ctx.x[10], ctx.x[11], ctx.x[12]) {
-                        Ok(code) => ctx.x[10] = code as usize,
+                    drop(ctx);
+                    drop(controller);
+                    match syscall(syscall_id, arg1, arg2, arg3) {
+                        Ok(code) => {
+                            let controller = task::TASK_CONTROLLER.access();
+                            let ctx = controller.get_current_trap_ctx().unwrap();
+                            ctx.x[10] = code as usize;
+                            drop(ctx);
+                            drop(controller);
+                        },
                         Err(error) => {
                             error!("Syscall Fault cause: {}", error);
                             task::exit_current_and_run_other_task().unwrap();
@@ -117,7 +136,7 @@ cfg_if! {
         }
 
         #[inline(always)]
-        fn interrupt_trap_handler(_: &mut context::TrapContext, interrupt: Interrupt) {
+        fn interrupt_trap_handler(interrupt: Interrupt) {
             match interrupt {
                 Interrupt::SupervisorTimer => {
                     timer::set_next_trigger();
@@ -134,9 +153,6 @@ cfg_if! {
             // now we cannot handle trap from S mode to S mode
             // so we just make it panic here
             set_kernel_trap_entry();
-            // load trap context from user space
-            let controller = task::TASK_CONTROLLER.exclusive_access();
-            let ctx = controller.get_current_trap_ctx().unwrap();
             // read the trap cause from register
             let scause = scause::read();
             // read the trap specific info value from register
@@ -144,9 +160,9 @@ cfg_if! {
             // check the cause type
             match scause.cause() {
                 // exception trap cause
-                Trap::Exception(exception) => exception_trap_handler(ctx, exception, stval),
+                Trap::Exception(exception) => exception_trap_handler(exception, stval),
                 // interrupt trap cause
-                Trap::Interrupt(interrupt) => interrupt_trap_handler(ctx, interrupt),
+                Trap::Interrupt(interrupt) => interrupt_trap_handler(interrupt),
             };
             trap_return();
         }

@@ -23,44 +23,45 @@ use crate::configs;
 use crate::prelude::*;
 use page_table::PageTable;
 
+pub type PageBytes = [u8; configs::MEMORY_PAGE_BYTE_SIZE];
+
 lazy_static! {
     pub static ref MAX_VIRTUAL_PAGE_NUMBER: usize =
-        PageTable::cal_vpn_with(configs::MAX_VIRTUAL_ADDRESS);
+        PageTable::get_vpn_with(configs::MAX_VIRTUAL_ADDRESS);
     /// trampoline will only have one page
     pub static ref TRAMPOLINE_VIRTUAL_PAGE_NUMBER: usize =
-        PageTable::cal_vpn_with(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR);
+        PageTable::get_vpn_with(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR);
     /// trampoline's code was save in kernel's .text section
     pub static ref TRAMPOLINE_PHYSICAL_PAGE_NUMBER: usize =
-        PageTable::cal_ppn_with(configs::_fn_trampoline as usize);
+        PageTable::get_ppn_with(configs::_fn_trampoline as usize);
     /// trap context will only have one page
     pub static ref TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER: usize =
-        PageTable::cal_vpn_with(configs::TRAP_CTX_VIRTUAL_BASE_ADDR);
+        PageTable::get_vpn_with(configs::TRAP_CTX_VIRTUAL_BASE_ADDR);
 }
 
 bitflags! {
     #[derive(Clone, Copy)]
     /// The abstract page table entry flags
     pub struct PageTableFlags: u8 {
-        const V = 1;
+        const EMPTY = 0;
         const R = 1 << 1;
         const W = 1 << 2;
         const X = 1 << 3;
         const U = 1 << 4;
-        const RV = Self::R.bits() | Self::V.bits();
-        const RXV = Self::RV.bits() | Self::X.bits();
-        const RWV = Self::RV.bits() | Self::W.bits();
-        const RXUV = Self::RXV.bits() | Self::U.bits();
-        const RWUV = Self::RWV.bits() | Self::U.bits();
+        const RX = Self::R.bits() | Self::X.bits();
+        const RW = Self::R.bits() | Self::W.bits();
+        const RXU = Self::RX.bits() | Self::U.bits();
+        const RWU = Self::RW.bits() | Self::U.bits();
     }
 }
 
 pub trait PageTableTr {
     /// Create a new page table and save it in physical frame menory
-    fn cal_ppn_with(pa: usize) -> usize;
-    fn cal_vpn_with(va: usize) -> usize;
+    fn get_ppn_with(pa: usize) -> usize;
+    fn get_vpn_with(va: usize) -> usize;
     fn cal_base_va_with(vpn: usize) -> usize;
-    fn cal_pa_offset(pa: usize) -> usize;
-    fn cal_va_offset(va: usize) -> usize;
+    fn get_pa_offset(pa: usize) -> usize;
+    fn get_va_offset(va: usize) -> usize;
     fn new(asid: usize) -> Result<Box<Self>>;
     fn asid(&self) -> usize;
     fn ppn(&self) -> usize;
@@ -70,7 +71,9 @@ pub trait PageTableTr {
     fn unmap_without_dealloc(&mut self, vpn: usize) -> Result<usize>;
     fn unmap(&mut self, vpn: usize) -> Result<usize>;
     fn translate_ppn_with(&self, vpn: usize) -> Option<usize>;
-    fn print_entries(&self, level: usize);
+    fn get_tracker_with(&self, vpn: usize) -> Result<&frame::FrameTracker>;
+    fn as_kernel_mut<'a, 'b, U>(&self, vpn: usize, offset: usize) -> Result<&'b mut U>;
+    fn get_byte_array<'a, 'b>(&'a self, vpn: usize) -> Result<&'b mut PageBytes>;
 }
 
 pub fn print_memory_info() {

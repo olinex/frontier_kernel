@@ -4,29 +4,38 @@
 // self mods
 
 // use other mods
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
 // use self mods
 use super::allocator::LinkedListPageRangeAllocator;
-use super::frame::{FrameTracker, FRAME_ALLOCATOR};
 use super::page_table::PageTable;
-use super::{PageTableFlags, PageTableTr};
+use super::{PageBytes, PageTableFlags, PageTableTr};
 use crate::lang::container::UserPromiseRefCell;
 use crate::{configs, prelude::*};
 
+/// The type of the area
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum AreaType {
+pub enum AreaMapping {
+    /// Area will only map vpn to ppn which equals vpn,
+    /// and will not allocate frame
     Identical,
+    /// Area will allocate frames and map vpn to it.
+    /// every frame will be managed by area
     Framed,
 }
 
+/// The virtual page range tracker which will automatically dealloc when dropping,
+/// Like the frame, virtual page cannot be allocated twice before it is dropped.
 struct PageRangeTracker {
+    /// the start virtual page number of the range which is contained in the range
     start_vpn: usize,
+    /// the end virtual page number of the range which isn't contained in the range
     end_vpn: usize,
+    /// the page range allocator which the tracker belongs to
     allocator: Arc<LinkedListPageRangeAllocator>,
 }
 impl PageRangeTracker {
+    /// Create a new tracker, don't using it by yourself
     fn new(
         start_vpn: usize,
         end_vpn: usize,
@@ -39,16 +48,19 @@ impl PageRangeTracker {
         }
     }
 
+    /// The byte size of current page range
     #[inline(always)]
     pub fn byte_size(&self) -> usize {
         (self.end_vpn - self.start_vpn) * configs::MEMORY_PAGE_BYTE_SIZE
     }
 
+    /// Get the start page number of the page range
     #[inline(always)]
     pub fn start_vpn(&self) -> usize {
         self.start_vpn
     }
 
+    /// Get the end page number of the page range
     #[inline(always)]
     pub fn end_vpn(&self) -> usize {
         self.end_vpn
@@ -58,44 +70,86 @@ impl PageRangeTracker {
     pub fn page_range(&self) -> core::ops::Range<usize> {
         self.start_vpn..self.end_vpn
     }
+
+    /// check the vpn is one the page number of the page range
+    #[inline(always)]
+    pub fn contain(&self, vpn: usize) -> bool {
+        self.start_vpn <= vpn && vpn < self.end_vpn
+    }
+
+    #[inline(always)]
+    pub fn check(&self, vpn: usize) -> Result<()> {
+        if self.contain(vpn) {
+            Ok(())
+        } else {
+            Err(KernelError::VPNOutOfArea {
+                vpn,
+                start: self.start_vpn,
+                end: self.end_vpn,
+            })
+        }
+    }
 }
 impl Drop for PageRangeTracker {
+    /// dealloc the page range to allocator when dropping the tracker
     fn drop(&mut self) {
         self.allocator
             .dealloc(self.start_vpn, self.end_vpn)
-            .expect("Cannot dealloc a page range tracker")
+            .unwrap();
     }
 }
 
+/// A area is a virtual abstraction class of contiguous virtual memory pages,
+/// and the internal memory pages have the same permissions and mappings
 pub struct Area {
+    /// Area permission flags
     flags: PageTableFlags,
-    area_type: AreaType,
-    frame_trackers: BTreeMap<usize, FrameTracker>,
+    /// Area mapping type
+    area_mapping: AreaMapping,
+    /// The tracker of the virtual page number range
     page_range_tracker: PageRangeTracker,
+    /// The refrence of the page table which contains the area
     page_table: Arc<UserPromiseRefCell<PageTable>>,
 }
 impl Area {
+    /// Create a new area
+    ///
+    /// # Arguments
+    /// * start_vpn: the start virtual page number of the area page range
+    /// * end_vpn: the end virutal page number ofthe area page range
+    /// * flags: the permission flags of the each frame
+    /// * area_mapping: area mapping type
+    /// * allocator: the virtual page range allocator
+    /// * page_table: the page table which will be used when alloc/delloc frame
+    ///
+    /// # Returns
+    /// * Ok(Area)
+    /// * Err(KernelError::AreaAllocationFailed(start_vpn, end_vpn))
     pub fn new(
         start_vpn: usize,
         end_vpn: usize,
         flags: PageTableFlags,
-        area_type: AreaType,
+        area_mapping: AreaMapping,
         allocator: &Arc<LinkedListPageRangeAllocator>,
         page_table: &Arc<UserPromiseRefCell<PageTable>>,
     ) -> Result<Self> {
         allocator
             .alloc(start_vpn, end_vpn)
-            .ok_or(KernelError::AreaAllocationFailed(start_vpn, end_vpn))?;
+            .ok_or(KernelError::AreaAllocFailed(start_vpn, end_vpn))?;
         let page_range_tracker = PageRangeTracker::new(start_vpn, end_vpn, allocator);
         Ok(Self {
-            area_type,
+            area_mapping,
             flags,
-            frame_trackers: BTreeMap::new(),
             page_range_tracker,
             page_table: Arc::clone(page_table),
         })
     }
 
+    /// In the same memory space, the tuple of the page range start and end virutal page number is unique,
+    /// It can be used as a unique identifier for a area
+    ///
+    /// # Returns
+    /// * (start_vpn, end_vpn)
     #[inline(always)]
     pub fn range(&self) -> (usize, usize) {
         (
@@ -104,43 +158,59 @@ impl Area {
         )
     }
 
+    /// Map a virtual page number to a physical page number.
+    /// If the area mapping is Idential, the physical page number is equal to the virtual page number,
+    /// and will not allocate memory frame
+    /// If the area mapping is Framed, area will allocate memory frame, and make the virtual page number mapped to it,
+    /// so the physical page number will be almost random
+    ///
+    /// # Arguments
+    /// * vpn: the virtual page number
+    ///
+    /// # Returns
+    /// * Ok(ppn)
+    /// * Err(KernelError::VPNOutOfArea{vpn, start, end})
+    /// * Err(KernelError::VPNAlreadyMapped(vpn))
     pub fn map_one(&mut self, vpn: usize) -> Result<usize> {
-        let ppn = match self.area_type {
-            AreaType::Identical => vpn,
-            AreaType::Framed => {
-                let tracker = FRAME_ALLOCATOR.alloc()?;
-                let ppn = tracker.ppn();
-                if let Some(_) = self.frame_trackers.insert(vpn, tracker) {
-                    return Err(KernelError::VPNAlreadyMapped(vpn));
-                }
-                ppn
+        self.page_range_tracker.check(vpn)?;
+        let ppn = match self.area_mapping {
+            AreaMapping::Identical => {
+                self.page_table
+                    .exclusive_access()
+                    .map_without_alloc(vpn, vpn, self.flags)?;
+                vpn
             }
+            AreaMapping::Framed => self.page_table.exclusive_access().map(vpn, self.flags)?,
         };
-        // FIXME: frame alloc and page table alloc must be synchronized
-        self.page_table
-            .exclusive_access()
-            .map_without_alloc(vpn, ppn, self.flags)?;
         Ok(ppn)
     }
 
+    /// Unmap a virtal page number.
+    /// If the area mapping is Idential, area will only unmap the virtual page number from page table,
+    /// If the area mapping is Framed, area will deallocate memory frame and unmap the virtual page number from page table.
+    ///
+    /// # Arguments
+    /// * vpn: the virtual page number
+    ///
+    /// # Returns
+    /// * Ok(ppn)
+    /// * Err(KernelError::VPNOutOfArea{vpn, start, end})
+    /// * Err(KernelError::VPNNotMapped(vpn))
     pub fn unmap_one(&mut self, vpn: usize) -> Result<usize> {
-        let ppn = match self.area_type {
-            AreaType::Identical => vpn,
-            AreaType::Framed => {
-                let tracker = self
-                    .frame_trackers
-                    .remove(&vpn)
-                    .ok_or(KernelError::VPNNotMapped(vpn))?;
-                tracker.ppn()
+        self.page_range_tracker.check(vpn)?;
+        let ppn = match self.area_mapping {
+            AreaMapping::Identical => {
+                self.page_table
+                    .exclusive_access()
+                    .unmap_without_dealloc(vpn)?;
+                vpn
             }
+            AreaMapping::Framed => self.page_table.exclusive_access().unmap(vpn)?,
         };
-        // FIXME: frame dealloc and page table dealloc must be synchronized
-        self.page_table
-            .exclusive_access()
-            .unmap_without_dealloc(vpn)?;
         Ok(ppn)
     }
 
+    /// Map all virtual pages
     pub fn map(&mut self) -> Result<()> {
         for vpn in self.page_range_tracker.page_range() {
             self.map_one(vpn)?;
@@ -148,54 +218,77 @@ impl Area {
         Ok(())
     }
 
+    /// Unallocate all virtual pages
     pub fn unmap(&mut self) -> Result<()> {
         for vpn in self.page_range_tracker.page_range() {
-            if self.frame_trackers.contains_key(&vpn) {
-                self.unmap_one(vpn)?;
-            }
+            self.unmap_one(vpn)?;
         }
         Ok(())
     }
 
+    /// # Unsafe
+    /// force convert the vpn binary data into a struct
+    /// # Arguments
+    /// * vpn: The virtual page number to convert
+    /// * offset: the first byte offset
+    ///
+    /// # Returns
+    /// * Ok(U)
+    /// * Err(KernelError::VPNNotMapped(vpn))
+    pub unsafe fn as_kernel_mut<U>(&self, vpn: usize, offset: usize) -> Result<&mut U> {
+        let page_table = self.page_table.access();
+        let tracker = page_table.get_tracker_with(vpn)?;
+        Ok(tracker.as_kernel_mut::<U>(offset))
+    }
+
+    /// Force convert the vpn binary data into a slice of bytes
+    /// # Arguments
+    /// * vpn: The virtual page number to convert
+    ///
+    /// # Returns
+    /// * Ok(&[u8; {const}])
+    /// * Err(KernelError::VPNNotMapped(vpn))
+    pub fn get_byte_array<'a, 'b>(&'a self, vpn: usize) -> Result<&'b mut PageBytes> {
+        let page_table = self.page_table.access();
+        let tracker = page_table.get_tracker_with(vpn)?;
+        Ok(tracker.get_byte_array())
+    }
+
+    /// Write byte data to the page
+    /// # Arguments
+    /// * vpn: The virtual page number to write
+    /// * offset: the first byte offset will be written to the page
+    /// * data: The byte data to write
+    ///
+    /// # Returns
+    /// * Ok(())
+    /// * Err(KernelError::VPNNotMapped(vpn))
     #[inline]
-    fn write_page(&mut self, vpn: usize, offset: usize, data: &[u8]) -> Result<()> {
-        if let Some(tracker) = self.frame_trackers.get(&vpn) {
-            let dst = tracker.get_byte_array();
-            dst[offset..data.len()].copy_from_slice(data);
-            Ok(())
-        } else {
-            Err(KernelError::VPNNotMapped(vpn))
-        }
+    fn write_page(&self, vpn: usize, offset: usize, data: &[u8]) -> Result<()> {
+        assert_eq!(self.area_mapping, AreaMapping::Framed);
+        let dst = self.get_byte_array(vpn)?;
+        dst[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
     }
 
-    pub unsafe fn as_kernel_mut<U>(&self, vpn: usize, linear_offset: usize) -> Result<&mut U> {
-        if let Some(tracker) = self.frame_trackers.get(&vpn) {
-            Ok(tracker.as_kernel_mut::<U>(linear_offset))
-        } else {
-            Err(KernelError::VPNNotMapped(vpn))
-        }
-    }
-
-    pub fn write_multi_pages(&mut self, linear_offset: usize, data: &[u8]) -> Result<()> {
-        assert_eq!(self.area_type, AreaType::Framed);
+    /// Write byte data to the multi continues pages.
+    /// # Arguments
+    /// * offset: The byte offset from the beginning of the first virtual page
+    /// * data: The byte data to be written
+    pub fn write_multi_pages(&mut self, offset: usize, data: &[u8]) -> Result<()> {
         let length = data.len();
-        let linear_end = length + linear_offset;
+        let linear_end = length + offset;
         assert!(linear_end <= self.page_range_tracker.byte_size());
-        let mut start = linear_offset % configs::MEMORY_PAGE_BYTE_SIZE;
-        let start_vpn = linear_offset / configs::MEMORY_PAGE_BYTE_SIZE;
-        let end_vpn = linear_end / configs::MEMORY_PAGE_BYTE_SIZE;
-        let offset_vpn = self.page_range_tracker.start_vpn;
-        for vpn in start_vpn..end_vpn {
-            let data_offset = vpn * configs::MEMORY_PAGE_BYTE_SIZE;
-            let src = &data[data_offset + start..data_offset + configs::MEMORY_PAGE_BYTE_SIZE];
-            self.write_page(vpn + offset_vpn, start, src)?;
-            start = 0;
-        }
-        let end = linear_end % configs::MEMORY_PAGE_BYTE_SIZE;
-        if end != 0 {
-            let data_offset = end_vpn * configs::MEMORY_PAGE_BYTE_SIZE;
-            let src = &data[data_offset + start..data_offset + end];
-            self.write_page(end_vpn + offset_vpn, start, src)?;
+        let vpn_offset = self.page_range_tracker.start_vpn();
+        let mut linear_start = offset;
+        while linear_start < linear_end {
+            let start = linear_start;
+            let end = linear_end.min(linear_start + configs::MEMORY_PAGE_BYTE_SIZE);
+            let src = &data[(start - offset)..(end - offset)];
+            let vpn = start / configs::MEMORY_PAGE_BYTE_SIZE;
+            let per_page_offset = start % configs::MEMORY_PAGE_BYTE_SIZE;
+            self.write_page(vpn + vpn_offset, per_page_offset, src)?;
+            linear_start = end;
         }
         Ok(())
     }
@@ -203,5 +296,102 @@ impl Area {
 impl Drop for Area {
     fn drop(&mut self) {
         self.unmap().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn test_area_write_page() {
+        let page_table = Arc::new(unsafe { UserPromiseRefCell::new(*PageTable::new(0).unwrap()) });
+        let page_range_allocator = Arc::new(LinkedListPageRangeAllocator::new(
+            0,
+            *super::super::MAX_VIRTUAL_PAGE_NUMBER + 1,
+        ));
+        let mut area = Area::new(
+            0,
+            1,
+            PageTableFlags::R,
+            AreaMapping::Framed,
+            &page_range_allocator,
+            &page_table,
+        )
+        .unwrap();
+        area.map().unwrap();
+        assert_eq!(
+            area.get_byte_array(0).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+        assert!(area.write_page(0, 0, &[1u8; 2][0..2]).is_ok());
+        assert_eq!(
+            &area.get_byte_array(0).unwrap()[0..4],
+            &[1u8, 1, 0, 0][0..4]
+        );
+        assert!(area.write_page(0, 2, &[2u8; 2][0..2]).is_ok());
+        assert_eq!(
+            &area.get_byte_array(0).unwrap()[0..6],
+            &[1u8, 1, 2, 2, 0, 0][0..6]
+        );
+    }
+
+    #[test_case]
+    fn test_area_write_multi_pages() {
+        let page_table = Arc::new(unsafe { UserPromiseRefCell::new(*PageTable::new(0).unwrap()) });
+        let page_range_allocator = Arc::new(LinkedListPageRangeAllocator::new(
+            0,
+            *super::super::MAX_VIRTUAL_PAGE_NUMBER + 1,
+        ));
+        let mut area = Area::new(
+            0,
+            3,
+            PageTableFlags::R,
+            AreaMapping::Framed,
+            &page_range_allocator,
+            &page_table,
+        )
+        .unwrap();
+        area.map().unwrap();
+        assert_eq!(
+            area.get_byte_array(0).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+        assert_eq!(
+            area.get_byte_array(1).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+        assert_eq!(
+            area.get_byte_array(2).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+        assert!(area.write_multi_pages(0, &[1u8; 2][0..2]).is_ok());
+
+        assert_eq!(&area.get_byte_array(0).unwrap()[0..2], &[1, 1][0..2]);
+        assert_eq!(
+            area.get_byte_array(1).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+        assert_eq!(
+            area.get_byte_array(2).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+
+        assert!(area
+            .write_multi_pages(configs::MEMORY_PAGE_BYTE_SIZE, &[1u8; 2][0..2])
+            .is_ok());
+        assert_eq!(&area.get_byte_array(0).unwrap()[0..2], &[1, 1][0..2]);
+        assert_eq!(&area.get_byte_array(1).unwrap()[0..2], &[1, 1][0..2]);
+        assert_eq!(
+            area.get_byte_array(2).unwrap(),
+            &[0; configs::MEMORY_PAGE_BYTE_SIZE]
+        );
+
+        assert!(area
+            .write_multi_pages(configs::MEMORY_PAGE_BYTE_SIZE * 2 + 1, &[1u8; 2][0..2])
+            .is_ok());
+        assert_eq!(&area.get_byte_array(0).unwrap()[0..2], &[1, 1][0..2]);
+        assert_eq!(&area.get_byte_array(1).unwrap()[0..2], &[1, 1][0..2]);
+        assert_eq!(&area.get_byte_array(2).unwrap()[0..3], &[0, 1, 1][0..3]);
     }
 }

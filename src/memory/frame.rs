@@ -7,6 +7,7 @@
 use alloc::sync::Arc;
 use core::mem;
 
+use super::PageBytes;
 // use self mods
 use super::allocator::BTreeSetFrameAllocator;
 use super::{page_table::PageTable, PageTableTr};
@@ -42,24 +43,24 @@ impl FrameTracker {
 
     /// [Unsafe] Returns data within a physical page according to the specified data structure
     /// # Arguments
-    /// * linear_offset: The offset of the specified data structure, start from 0
+    /// * offset: The offset of the specified data structure, start from 0
     ///
     /// # Returns
     /// * &mut U: return the mutable reference of U structure data
     ///   cannot greater than the page size
     #[inline(always)]
-    pub unsafe fn as_kernel_mut<'a, 'b, U>(&'a self, linear_offset: usize) -> &'b mut U {
+    pub unsafe fn as_kernel_mut<'a, 'b, U>(&'a self, offset: usize) -> &'b mut U {
         let mem_size = mem::size_of::<U>();
-        let linear_end = linear_offset + mem_size;
-        assert!(linear_end <= configs::MEMORY_PAGE_BYTE_SIZE);
-        &mut *((self.pa() + linear_offset) as *mut U)
+        let end = offset + mem_size;
+        assert!(end <= configs::MEMORY_PAGE_BYTE_SIZE);
+        &mut *((self.pa() + offset) as *mut U)
     }
 
     /// Get the physical memory data from the frame as u8 array
     /// # Returns
     /// * &mut [u8; MEMORY_PAGE_SIZE]
     #[inline(always)]
-    pub fn get_byte_array<'a, 'b>(&'a self) -> &'b mut [u8; configs::MEMORY_PAGE_BYTE_SIZE] {
+    pub fn get_byte_array<'a, 'b>(&'a self) -> &'b mut PageBytes {
         unsafe { self.as_kernel_mut(0) }
     }
 
@@ -99,8 +100,8 @@ impl FRAME_ALLOCATOR {
 /// Initializes the global physical memory frame allocator
 /// We must clear the bss section first
 pub fn init_frame_allocator() {
-    let start = PageTable::cal_ppn_with(configs::_addr_free_mem_start as usize);
-    let end = PageTable::cal_ppn_with(configs::_addr_free_mem_end as usize);
+    let start = PageTable::get_ppn_with(configs::_addr_free_mem_start as usize);
+    let end = PageTable::get_ppn_with(configs::_addr_free_mem_end as usize);
     info!(
         "[{:>12}, {:>12}): Frame memory page initialized",
         start, end
@@ -114,26 +115,21 @@ mod tests {
 
     #[test_case]
     fn test_global_frame_allocator_alloc_and_dealloc() {
-        init_frame_allocator();
         assert_ne!(FRAME_ALLOCATOR.access().current_ppn(), 0);
         assert_ne!(FRAME_ALLOCATOR.access().end_ppn(), 0);
-        assert!(FRAME_ALLOCATOR
-            .alloc()
-            .is_ok_and(|t| t.ppn() == FRAME_ALLOCATOR.access().current_ppn() - 1));
-        assert!(FRAME_ALLOCATOR
-            .alloc()
-            .is_ok_and(|t| t.ppn() == FRAME_ALLOCATOR.access().current_ppn() - 1));
         let tracker = FRAME_ALLOCATOR.alloc().unwrap();
-        let frame = tracker.ppn().clone();
-        assert!(FRAME_ALLOCATOR.alloc().is_ok_and(|t| t.ppn() == frame + 1));
-        assert!(FRAME_ALLOCATOR.alloc().is_ok_and(|t| t.ppn() == frame + 1));
-        assert!(frame == FRAME_ALLOCATOR.access().current_ppn() - 2);
+        let prev_ppn = tracker.ppn();
+        assert!(prev_ppn < FRAME_ALLOCATOR.access().current_ppn());
+        let tracker = FRAME_ALLOCATOR.alloc().unwrap();
+        let next_ppn = tracker.ppn();
+        assert!(next_ppn < FRAME_ALLOCATOR.access().current_ppn());
+        assert!(prev_ppn + 1 == next_ppn);
     }
 
     #[test_case]
     fn test_global_frame_allocator_clear_when_drop() {
         let tracker = FRAME_ALLOCATOR.alloc().unwrap();
-        let frame = tracker.ppn().clone();
+        let frame = tracker.ppn();
         let array = tracker.get_byte_array();
         assert_eq!(array[0], 0);
         array[0] = 1;

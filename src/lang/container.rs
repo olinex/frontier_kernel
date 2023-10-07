@@ -18,16 +18,21 @@ unsafe impl<T> Sync for UserPromiseRefCell<T> {}
 
 impl<T> UserPromiseRefCell<T> {
     // User is responsible to guarantee that inner struct is only used in uniprocessor.
+    #[inline(always)]
     pub unsafe fn new(value: T) -> Self {
         Self {
             inner: RefCell::new(value),
         }
     }
+
     // Panic if the data has been borrowed.
+    #[inline(always)]
     pub fn exclusive_access(&self) -> RefMut<'_, T> {
         self.inner.borrow_mut()
     }
-    // only read borrowed
+
+    // Only read borrowed
+    #[inline(always)]
     pub fn access(&self) -> Ref<'_, T> {
         self.inner.borrow()
     }

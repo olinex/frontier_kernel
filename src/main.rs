@@ -63,18 +63,18 @@ cfg_if! {
 // will be called in [`./assembly/riscv64/entry.asm`]
 // for avoid rust main entrypoint symbol be confused by compiler
 cfg_if! {
-    if #[cfg(test)] {
+    if #[cfg(not(test))] {
         // for testing in qemu
-        #[no_mangle]
-        fn main() -> () {
-            init();
-            test_main();
-        }
-    } else {
         #[no_mangle]
         fn main() -> ! {
             init();
             task::run();
+        }
+    } else {
+        #[no_mangle]
+        fn main() -> () {
+            init();
+            test_main();
         }
     }
 }

@@ -20,11 +20,6 @@ _fn_save_all_registers_before_trap:
     // this instruction in here will swap the value of the sp and sscratch
     // now sp->kernel stack, sscratch->user stack
     csrrw sp, sscratch, sp
-    // mallocate a src/trap/TrapContext on kernel stack
-    // because the context has 32 registers, sstatus and sepc propertiries
-    // in different targets, it maybe 32 bits or 64 bits size
-    // so we choice bigger size 64 (memory size unit is byte)
-    addi sp, sp, -34*WORD_SIZE
     // save general purpose registers
     // skip zero(x0), because it' value is always zero
     sd ra, 1*WORD_SIZE(sp)

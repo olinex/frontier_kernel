@@ -7,6 +7,7 @@
 
 // use self mods
 use crate::prelude::*;
+use crate::task::TASK_CONTROLLER;
 
 pub mod descriptor {
     pub const STDOUT: usize = 1;
@@ -16,9 +17,13 @@ pub mod descriptor {
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> Result<isize> {
     match fd {
         descriptor::STDOUT => {
-            let slice = unsafe { core::slice::from_raw_parts(buf, len) };
-            let str = core::str::from_utf8(slice).unwrap();
-            print!("{}", str);
+            let controller = TASK_CONTROLLER.access();
+            let current_space = controller.current_space()?;
+            let buffers = current_space.translated_byte_buffers(buf, len)?;
+            for buffer in buffers {
+                let str = core::str::from_utf8(buffer).unwrap();
+                print!("{}", str);
+            }
             Ok(len as isize)
         }
         _ => Err(KernelError::InvalidFileDescriptor(fd)),

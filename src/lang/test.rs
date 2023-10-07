@@ -14,6 +14,7 @@ pub fn test_runner(tests: &[&dyn Fn()]) -> ! {
     for test in tests {
         test();
     }
+    info!("Successfully Finished {} tests", tests.len());
     qemu::QEMU_EXIT_HANDLE.exit_success()
 }
 
