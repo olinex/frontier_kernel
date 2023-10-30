@@ -8,6 +8,7 @@
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 #![feature(custom_test_frameworks)]
+#![feature(slice_from_ptr_range)]
 #![test_runner(lang::test::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
@@ -36,8 +37,8 @@ extern crate riscv;
 use core::arch::global_asm;
 
 // use self mods
-// mod boards;
 mod configs;
+mod constant;
 mod lang;
 mod memory;
 mod sbi;
@@ -89,4 +90,6 @@ fn init() {
     memory::init();
     // make trap handler enable
     trap::init();
+    // make process enable
+    task::init();
 }

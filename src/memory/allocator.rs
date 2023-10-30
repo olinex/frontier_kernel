@@ -26,13 +26,13 @@ use crate::lang::error::*;
 /// |     occupied       |    available    |    occupied   | <- this is ok
 /// |     occupied       |    occupied    |    available   | <- this is bad!!!
 pub struct PageNode {
-    /// when used is true, it mean that the interval [current page, next page) is occupied
+    /// When used is true, it mean that the interval [current page, next page) is occupied
     used: bool,
-    /// the virtual memory page number
+    /// The virtual memory page number
     vpn: usize,
-    /// a weak reference to the the current node's parent node
+    /// A weak reference to the the current node's parent node
     prev: Weak<UserPromiseRefCell<PageNode>>,
-    /// an optianal strong reference to the current node's next node
+    /// An optianal strong reference to the current node's next node
     next: Option<Arc<UserPromiseRefCell<PageNode>>>,
 }
 impl PageNode {
@@ -49,8 +49,8 @@ impl PageNode {
         }
     }
 
-    /// Link two nodes together
-    /// The linking process is little complicated, we want to link node4 to node1 as next node
+    /// Link two nodes together.
+    /// The linking process is little complicated, we want to link node4 to node1 as next node.
     /// The steps are as follows:
     ///       prev node                                                                           next node
     ///       node1(prev: ., next: 2)     node2(prev: 1, next: .)     node3(prev: ., next: 4)     node4(prev: 3, next: .)
@@ -79,9 +79,9 @@ impl PageNode {
         next_page_node.exclusive_access().prev = Arc::downgrade(prev_page_node);
     }
 
-    /// Check and merge the two same interval of the status of available
-    /// if current not has previous node and next node
-    /// this function is called after some page nodes insert into the linked list
+    /// Check and merge the two same interval of the status of available.
+    /// If current not has previous node and next node
+    /// This function is called after some page nodes insert into the linked list
     /// # Arguments
     /// * node: the current page node which will be merged into the previous node
     fn merge_range(page_node: Arc<UserPromiseRefCell<PageNode>>) {
@@ -120,7 +120,7 @@ impl LinkedListPageRangeAllocator {
         }
     }
 
-    /// Find the interval which is contain the given page interval
+    /// Find the interval which is contain the given page interval.
     /// # Arguments
     /// * start_vpn: the first virtual memory page number
     /// * end_vpn: the last virtual memory page number, which will not be allocated
@@ -157,7 +157,7 @@ impl LinkedListPageRangeAllocator {
         }
     }
 
-    /// Change specified interval's available status
+    /// Change specified interval's available status.
     /// # Arguments
     /// * start_vpn: the first virtual memory page number
     /// * end_vpn: the last virtual memory page number, which will not be allocated
@@ -220,7 +220,7 @@ impl LinkedListPageRangeAllocator {
         }
     }
 
-    /// Alloc virtual page interval
+    /// Alloc virtual page interval.
     /// # Arguments
     /// * start_vpn: the first virtual memory page number
     /// * end_vpn: the last virtual memory page number, which will not be allocated
@@ -233,7 +233,7 @@ impl LinkedListPageRangeAllocator {
         self.change(start_vpn, end_vpn, true)
     }
 
-    /// dealloc virtual page interval
+    /// Dealloc virtual page interval.
     /// # Arguments
     /// * start_vpn: the first virtual memory page number
     /// * end_vpn: the last virtual memory page number, which will not be allocated
@@ -248,7 +248,7 @@ impl LinkedListPageRangeAllocator {
 }
 
 /// A physical memory frame allocation manager
-/// Which will keep all frames in control
+/// which will keep all frames in control.
 pub struct BTreeSetFrameAllocator {
     /// not yet allocated physical page number
     /// which will be allocated in next time allocating when no more recycled frames
@@ -256,12 +256,10 @@ pub struct BTreeSetFrameAllocator {
     /// end frame number, which will not be allocated,
     /// unless the page offset is 4K - 1;
     end_ppn: usize,
-    // a frame that has been released but not yet allocated
+    /// a set of frames those have been released but not yet allocated
     recycled: BTreeSet<usize>,
 }
 impl BTreeSetFrameAllocator {
-    /// Calculate the current frame number
-
     /// Create a new BTreeSetFrameAllocator
     pub fn new() -> Self {
         Self {
@@ -284,6 +282,7 @@ impl BTreeSetFrameAllocator {
     }
 
     /// Initialize a new BTreeSetFrameAllocator
+    /// 
     /// # Arguments
     /// * current_ppn: the current physical page number which will be used in next time allocating
     /// * end_ppn: the end physical page number which will not be used, it must greater than current
@@ -294,6 +293,7 @@ impl BTreeSetFrameAllocator {
     }
 
     /// Alloc a new frame
+    /// 
     /// # Returns
     /// * Ok(usize): the new physical page number
     /// * Err(KernelError::FrameExhausted): if no other frame can be allocated
@@ -312,12 +312,12 @@ impl BTreeSetFrameAllocator {
     }
 
     /// Dealloc a frame
-    /// # Pnaics
-    /// You cannot dealloc a frame which is never been used or was using
+    /// 
+    /// # Returns
+    /// * Ok(())
+    /// * Err(KernelError::FrameNotDeallocable(ppn))
     pub fn dealloc(&mut self, ppn: usize) -> Result<()> {
-        if ppn >= self.current_ppn {
-            Err(KernelError::FrameNotDeallocable(ppn))
-        } else if !self.recycled.insert(ppn) {
+        if ppn >= self.current_ppn || !self.recycled.insert(ppn) {
             Err(KernelError::FrameNotDeallocable(ppn))
         } else {
             Ok(())

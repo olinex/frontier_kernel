@@ -16,6 +16,30 @@ use crate::sbi::*;
 use crate::syscall::syscall;
 use crate::{configs, task};
 
+// enable the time interrput and the first timer trigger
+// when system was trap with timer interrupt, it will set other trigger by itself
+pub fn init_timer_interrupt() {
+    unsafe { SBI::enable_timer_interrupt() };
+    timer::set_next_trigger();
+}
+
+/// Set `trap_from_kernel` function as the trap handler entry point
+/// This function just panic so that we force disable the ability of the trap
+pub fn set_kernel_trap_entry() {
+    unsafe { SBI::set_direct_trap_vector(trap_from_kernel as usize) }
+}
+
+/// Set trampoline code as the trap handler entry point which code is written in the file [assembly/trampoline.asm].
+pub fn set_user_trap_entry() {
+    unsafe { SBI::set_direct_trap_vector(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR) }
+}
+
+/// A help function for trap handler which force disable the trap.
+#[no_mangle]
+pub fn trap_from_kernel() -> ! {
+    panic!("a trap from kernel!");
+}
+
 cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
 
@@ -26,39 +50,13 @@ cfg_if! {
         // 1 save all registers
         // 2 call trap_handler and pass user stack
 
-        // enable the time interrput and the first timer trigger
-        // when system was trap with timer interrupt, it will set other trigger by itself
-        pub fn init_timer_interrupt() {
-            unsafe { SBI::set_stimer() };
-            timer::set_next_trigger();
-        }
-
-        /// Set `trap_from_kernel` function as the trap handler entry point
-        /// This function just panic so that we force disable the ability of the trap
-        pub fn set_kernel_trap_entry() {
-            unsafe {SBI::set_direct_trap_vector(trap_from_kernel as usize)}
-        }
-
-        /// Set trampoline code as the trap handler entry point which code is written in the file [assembly/trampoline.asm].
-        pub fn set_user_trap_entry() {
-            unsafe {SBI::set_direct_trap_vector(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR)}
-        }
-
-        /// A help function for trap handler which force disable the trap.
-        #[no_mangle]
-        pub fn trap_from_kernel() -> ! {
-            panic!("a trap from kernel!");
-        }
-
         #[no_mangle]
         pub fn trap_return() -> ! {
             set_user_trap_entry();
             let trap_ctx_va = configs::TRAP_CTX_VIRTUAL_BASE_ADDR;
-            let controller = task::TASK_CONTROLLER.access();
-            let user_mmu_token = controller
-                .get_current_user_token()
-                .unwrap();
-            drop(controller);
+            let task = task::PROCESSOR.current_task().unwrap();
+            let user_mmu_token = task.user_token();
+            drop(task);
             extern "C" {
                 fn _fn_save_all_registers_before_trap();
                 fn _fn_restore_all_registers_after_trap();
@@ -66,7 +64,7 @@ cfg_if! {
             let restore_va = _fn_restore_all_registers_after_trap as usize
                 - _fn_save_all_registers_before_trap as usize
                 + configs::TRAMPOLINE_VIRTUAL_BASE_ADDR;
-            unsafe {SBI::fence_i()};
+            unsafe {SBI::sync_icache()};
             unsafe {
                 asm!(
                     "jr {restore_va}",
@@ -90,26 +88,30 @@ cfg_if! {
                     // extract the trap context's register value
                     // we must drop the controller and trap context's reference immediately,
                     // because in syscall function will borrow it too soon
-                    let controller = task::TASK_CONTROLLER.access();
-                    let ctx = controller.get_current_trap_ctx().unwrap();
-                    let syscall_id = ctx.x[17];
-                    let arg1 = ctx.x[10];
-                    let arg2 = ctx.x[11];
-                    let arg3 = ctx.x[12];
-                    ctx.sepc += 4;
+                    let task = task::PROCESSOR.current_task().unwrap();
+                    let inner = task.inner_access();
+                    let ctx = inner.trap_ctx().unwrap();
+                    let syscall_id = ctx.get_arg(7);
+                    let arg1 = ctx.get_arg(0);
+                    let arg2 = ctx.get_arg(1);
+                    let arg3 = ctx.get_arg(2);
+                    ctx.sepc_to_next_instruction();
                     drop(ctx);
-                    drop(controller);
+                    drop(inner);
+                    drop(task);
                     match syscall(syscall_id, arg1, arg2, arg3) {
                         Ok(code) => {
-                            let controller = task::TASK_CONTROLLER.access();
-                            let ctx = controller.get_current_trap_ctx().unwrap();
-                            ctx.x[10] = code as usize;
+                            let task = task::PROCESSOR.current_task().unwrap();
+                            let inner = task.inner_access();
+                            let ctx = inner.trap_ctx().unwrap();
+                            ctx.set_arg(0, code as usize);
                             drop(ctx);
-                            drop(controller);
+                            drop(inner);
+                            drop(task);
                         },
                         Err(error) => {
                             error!("Syscall Fault cause: {}", error);
-                            task::exit_current_and_run_other_task().unwrap();
+                            task::exit_current_and_run_other_task(-1).unwrap();
                         }
                     }
                 }
@@ -119,12 +121,12 @@ cfg_if! {
                 | Exception::LoadFault
                 | Exception::LoadPageFault => {
                     error!("PageFault in application, kernel killed it.");
-                    task::exit_current_and_run_other_task().unwrap();
+                    task::exit_current_and_run_other_task(-2).unwrap();
                 }
                 // apllcation run some illegal instruction
                 Exception::IllegalInstruction => {
                     error!("IllegalInstruction in application, kernel killed it.");
-                    task::exit_current_and_run_other_task().unwrap();
+                    task::exit_current_and_run_other_task(-3).unwrap();
                 }
                 _ => {
                     panic!(

@@ -18,10 +18,12 @@ pub const KERNEL_TASK_STACK_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 2;
 pub const KERNEL_HEAP_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 256;
 pub const KERNEL_GUARD_PAGE_COUNT: usize = 1;
 pub const MAX_VIRTUAL_ADDRESS: usize = usize::MAX;
+pub const MAX_PID_COUNT: usize = 65536;
+pub const INIT_PROCESS_NAME: &'static str = "initproc";
 pub const TRAMPOLINE_VIRTUAL_BASE_ADDR: usize = MAX_VIRTUAL_ADDRESS - MEMORY_PAGE_BYTE_SIZE + 1;
 pub const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADDR - MEMORY_PAGE_BYTE_SIZE;
 pub const TICKS_PER_SEC: usize = 100;
-pub const LOG_LEVEL: Level = Level::Info;
+pub const LOG_LEVEL: Level = Level::Debug;
 
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {

@@ -68,29 +68,30 @@ cfg_if! {
 }
 
 bitflags! {
-    /// The flags of the page table entry
+    /// The flags of the page table entry.
     /// This structure is only used in riscv
     #[derive(PartialEq, Eq)]
     pub struct PTEFlags: u8 {
-        /// is valid
+        /// Is valid
         const V = 1 << 0;
-        /// is readable
+        /// Is readable
         const R = 1 << 1;
-        /// is writeable
+        /// Is writeable
         const W = 1 << 2;
-        /// is executable
+        /// Is executable
         const X = 1 << 3;
-        /// is user accessible
+        /// Is user accessible
         const U = 1 << 4;
-        /// ggnore
+        /// Ignore
         const G = 1 << 5;
-        /// have accessed
+        /// Have accessed
         const A = 1 << 6;
-        /// is dirty(changed)
+        /// Is dirty(changed)
         const D = 1 << 7;
     }
 }
 
+/// The entry of the page table which records the relationship of the vpn and the ppn
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct PageTableEntry {
@@ -127,7 +128,7 @@ impl PageTableEntry {
         PTEFlags::from_bits(self.bits as u8).unwrap()
     }
 
-    /// check current PTE validation
+    /// Check current PTE validation
     #[inline(always)]
     pub fn is_valid(&self) -> bool {
         self.flags() & PTEFlags::V == PTEFlags::V
@@ -139,14 +140,14 @@ type PTEArray = [PageTableEntry; PTE_COUNT];
 
 /// The page mapper which contain the PTE
 pub struct PageMapper {
-    /// the physical page number of the parent page mapper,
+    /// The physical page number of the parent page mapper,
     /// Which maybe None when page mapper is the root mapper
     parent: Option<usize>,
-    /// the count of the PTE which are valid,
-    /// when count is zero, mapper will be removed and the frame will be dealloc
+    /// The count of the PTE which are valid,
+    /// When count is zero, mapper will be removed and the frame will be dealloc
     count: UserPromiseRefCell<usize>,
-    /// the tracker of the frame which contains the page mapper,
-    /// it will be dropped when page mapper is destroyed
+    /// The tracker of the frame which contains the page mapper,
+    /// It will be dropped when page mapper is destroyed
     tracker: frame::FrameTracker,
 }
 impl PageMapper {
@@ -163,7 +164,7 @@ impl PageMapper {
         }
     }
 
-    /// get the array of the PTE in the page mapper
+    /// Get the array of the PTE in the page mapper
     #[inline(always)]
     fn get_pte_array(&self) -> &mut PTEArray {
         unsafe { self.tracker.as_kernel_mut(0) }
@@ -181,7 +182,7 @@ impl PageMapper {
         *self.count.access() == 0
     }
 
-    /// check if teh pge mapper's PTE are all valid
+    /// Check if teh pge mapper's PTE are all valid
     #[inline(always)]
     fn is_full(&self) -> bool {
         *self.count.access() as usize == PTE_COUNT
@@ -220,13 +221,13 @@ impl PageMapper {
 
 /// The page table abstract struct
 pub struct PageTable {
-    /// the address space id of the page table
+    /// The address space id of the page table
     asid: usize,
-    /// the root page mapper of the current page table
+    /// The root page mapper of the current page table
     root: PageMapper,
-    /// the other page mappers of the current page table, mapped ppn as key
+    /// The other page mappers of the current page table, mapped ppn as key
     mappers: BTreeMap<usize, PageMapper>,
-    /// the trackers of the frames, mapped vpn as key
+    /// The trackers of the frames, mapped vpn as key
     trackers: BTreeMap<usize, frame::FrameTracker>,
 }
 impl PageTable {
@@ -237,7 +238,7 @@ impl PageTable {
     ///
     /// # Returns:
     /// Depending on the mechanism of multi-level page tables,
-    /// the length of the returned in-page index is also different.
+    /// The length of the returned in-page index is also different.
     /// * Sv39:
     ///     return [usize; 3]: [ppn03(30..39), ppn02(21..30), ppn01(12..21)]
     fn page_indexes(vpn: usize) -> [usize; PAGE_LEVEL] {
@@ -457,7 +458,7 @@ impl PageTableTr for PageTable {
             // it means we have got a bad mistaken
             let parent = match mapper.parent {
                 Some(p) => p,
-                None => panic!("Invalid page table mapper have none parent"),
+                None => unreachable!(),
             };
             self.mappers
                 .remove(&remove_ppn)

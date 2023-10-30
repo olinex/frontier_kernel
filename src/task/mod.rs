@@ -32,20 +32,23 @@
 // @time:      2023/09/01
 
 // self mods
+mod allocator;
 mod context;
 mod control;
+mod loader;
+mod process;
 mod switch;
 
 // use other mods
-use alloc::sync::Arc;
 use core::arch::global_asm;
 
 // use self mods
-use crate::lang::container::UserPromiseRefCell;
 use crate::prelude::*;
 
-// reexport
-pub use control::TaskController;
+// reexports
+pub use loader::APP_LOADER;
+pub use process::PROCESSOR;
+pub use process::TASK_CONTROLLER;
 
 cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
@@ -55,48 +58,27 @@ cfg_if! {
     }
 }
 
-lazy_static! {
-    /// The global visibility task controller which will load all tasks's code and create virtual address space lazily.
-    pub static ref TASK_CONTROLLER: Arc<UserPromiseRefCell<control::TaskController>> = {
-        // load _addr_app_count which defined in link_app.asm
-        extern "C" { fn _addr_app_count(); }
-        // convert _addr_app_count as const usize pointer
-        let task_count_ptr = _addr_app_count as usize as *const usize;
-        // read app_count value
-        let task_count = unsafe {task_count_ptr.read_volatile()};
-        // get start address which is after the app count pointer
-        let task_range_ptr = unsafe {task_count_ptr.add(1)} as usize;
-        // load task range slice
-        let task_ranges = unsafe {
-            core::slice::from_raw_parts(task_range_ptr as *const control::TaskRange, task_count)
-        };
-        // create task controller and load all tasks's code
-        let controller = control::TaskController::new(task_ranges).unwrap();
-        Arc::new(unsafe {UserPromiseRefCell::new(controller)})
-    };
-}
-
 /// This method allows the multitasking system to start really running,
 /// which is the engine ignition switch
 #[inline(always)]
 #[allow(dead_code)]
 pub fn run() -> ! {
-    // Keep the ownership of the mutable reference of the task controller,
-    // Because the `run_first_task` will never return, so we must and move it into the function
-    let ref_mut = TASK_CONTROLLER.exclusive_access();
-    control::TaskController::run_first_task(ref_mut);
+    process::PROCESSOR.schedule()
 }
 
 /// Suspend current task and run other runable task
 #[inline(always)]
 pub fn suspend_current_and_run_other_task() -> Result<()> {
-    let ref_mut = TASK_CONTROLLER.exclusive_access();
-    TaskController::suspend_current_and_run_other_task(ref_mut)
+    process::PROCESSOR.suspend_current_and_run_other_task()
 }
 
 /// Exit current task and run other runable task
 #[inline(always)]
-pub fn exit_current_and_run_other_task() -> Result<()> {
-    let ref_mut = TASK_CONTROLLER.exclusive_access();
-    TaskController::exit_current_and_run_other_task(ref_mut)
+pub fn exit_current_and_run_other_task(exit_code: i32) -> Result<()> {
+    process::PROCESSOR.exit_current_and_run_other_task(exit_code)
+}
+
+pub fn init() {
+    control::init_pid_allocator();
+    process::add_init_proc();
 }

@@ -4,6 +4,7 @@
 // self mods
 
 // use other mods
+use alloc::string::String;
 use enum_group::EnumGroup;
 use thiserror_no_std::Error;
 
@@ -11,13 +12,6 @@ use thiserror_no_std::Error;
 
 #[derive(Error, EnumGroup, Debug)]
 pub enum KernelError {
-    // #[groups(language)]
-    // #[error("[kernel] Index({index}) is out of range [{start}, {end})")]
-    // IndexOutOfRange {
-    //     index: usize,
-    //     start: usize,
-    //     end: usize,
-    // },
     #[groups(syscall)]
     #[error("[kernel] Invalid syscall id: {0}")]
     InvaidSyscallId(usize),
@@ -83,10 +77,6 @@ pub enum KernelError {
     InvaidPageTablePerm(usize),
 
     #[groups(task)]
-    #[error("[kernel] Task {0} does not found")]
-    TaskNotFound(usize),
-
-    #[groups(task)]
     #[error("[kernel] Invalid headless task")]
     InvalidHeadlessTask,
 
@@ -94,13 +84,37 @@ pub enum KernelError {
     #[error("[kernel] Unloadable task")]
     UnloadableTask,
 
-    #[groups(task)]
-    #[error("[kernel] No runnable tasks found")]
-    NoRunableTasks,
+    #[groups(process)]
+    #[error("[kernel] Process id exhausted")]
+    PidExhausted,
 
-    #[groups(others)]
+    #[groups(process)]
+    #[error("[kernel] Process id not deallocable")]
+    PidNotDeallocable(usize),
+
+    #[groups(process)]
+    #[error("[kernel] Process {0} already exists")]
+    ProcessAlreadyExists(String),
+
+    #[groups(process)]
+    #[error("[kernel] Process {0} dose not exists")]
+    ProcessDoesNotExists(String),
+
+    #[groups(process)]
+    #[error("[kernel] Process have not task")]
+    ProcessHaveNotTask,
+
+    #[groups(others, parse, elf)]
     #[error("[kernel] Parse elf error: {0}")]
     ParseElfError(#[from] elf::ParseError),
+
+    #[groups(others, parse, core)]
+    #[error("[kernel] core error: {0}")]
+    ParseStringError(#[from] alloc::string::ParseError),
+
+    #[groups(others, parse, core)]
+    #[error("[kernel] core error: {0}")]
+    ParseUtf8Error(#[from] alloc::str::Utf8Error),
 }
 
 pub type Result<T> = core::result::Result<T, KernelError>;

@@ -27,11 +27,11 @@ pub enum AreaMapping {
 /// The virtual page range tracker which will automatically dealloc when dropping,
 /// Like the frame, virtual page cannot be allocated twice before it is dropped.
 struct PageRangeTracker {
-    /// the start virtual page number of the range which is contained in the range
+    /// The start virtual page number of the range which is contained in the range
     start_vpn: usize,
-    /// the end virtual page number of the range which isn't contained in the range
+    /// The end virtual page number of the range which isn't contained in the range
     end_vpn: usize,
-    /// the page range allocator which the tracker belongs to
+    /// The page range allocator which the tracker belongs to
     allocator: Arc<LinkedListPageRangeAllocator>,
 }
 impl PageRangeTracker {
@@ -71,7 +71,7 @@ impl PageRangeTracker {
         self.start_vpn..self.end_vpn
     }
 
-    /// check the vpn is one the page number of the page range
+    /// Check the vpn is one the page number of the page range
     #[inline(always)]
     pub fn contain(&self, vpn: usize) -> bool {
         self.start_vpn <= vpn && vpn < self.end_vpn
@@ -91,7 +91,7 @@ impl PageRangeTracker {
     }
 }
 impl Drop for PageRangeTracker {
-    /// dealloc the page range to allocator when dropping the tracker
+    /// Dealloc the page range to allocator when dropping the tracker
     fn drop(&mut self) {
         self.allocator
             .dealloc(self.start_vpn, self.end_vpn)
@@ -136,13 +136,44 @@ impl Area {
         allocator
             .alloc(start_vpn, end_vpn)
             .ok_or(KernelError::AreaAllocFailed(start_vpn, end_vpn))?;
-        let page_range_tracker = PageRangeTracker::new(start_vpn, end_vpn, allocator);
-        Ok(Self {
+        let mut area = Self {
             area_mapping,
             flags,
-            page_range_tracker,
+            page_range_tracker: PageRangeTracker::new(start_vpn, end_vpn, allocator),
             page_table: Arc::clone(page_table),
-        })
+        };
+        area.map()?;
+        Ok(area)
+    }
+
+    /// Create a new area copy by another area
+    ///
+    /// # Arguments
+    /// * another: another area which is to be copied
+    /// * allocator: the virtual page range allocator
+    /// * page_table: the page table which will be used when alloc/delloc frame
+    ///
+    /// # Returns
+    /// * Ok(Area)
+    /// * Err(KernelError::AreaAllocationFailed(start_vpn, end_vpn))
+    pub fn from_another(
+        another: &Self,
+        allocator: &Arc<LinkedListPageRangeAllocator>,
+        page_table: &Arc<UserPromiseRefCell<PageTable>>,
+    ) -> Result<Self> {
+        let start_vpn = another.page_range_tracker.start_vpn();
+        let end_vpn = another.page_range_tracker.end_vpn();
+        allocator
+            .alloc(start_vpn, end_vpn)
+            .ok_or(KernelError::AreaAllocFailed(start_vpn, end_vpn))?;
+        let mut area = Self {
+            area_mapping: another.area_mapping,
+            flags: another.flags,
+            page_range_tracker: PageRangeTracker::new(start_vpn, end_vpn, allocator),
+            page_table: Arc::clone(page_table),
+        };
+        area.map()?;
+        Ok(area)
     }
 
     /// In the same memory space, the tuple of the page range start and end virutal page number is unique,
@@ -171,7 +202,7 @@ impl Area {
     /// * Ok(ppn)
     /// * Err(KernelError::VPNOutOfArea{vpn, start, end})
     /// * Err(KernelError::VPNAlreadyMapped(vpn))
-    pub fn map_one(&mut self, vpn: usize) -> Result<usize> {
+    fn map_one(&mut self, vpn: usize) -> Result<usize> {
         self.page_range_tracker.check(vpn)?;
         let ppn = match self.area_mapping {
             AreaMapping::Identical => {
@@ -196,7 +227,7 @@ impl Area {
     /// * Ok(ppn)
     /// * Err(KernelError::VPNOutOfArea{vpn, start, end})
     /// * Err(KernelError::VPNNotMapped(vpn))
-    pub fn unmap_one(&mut self, vpn: usize) -> Result<usize> {
+    fn unmap_one(&mut self, vpn: usize) -> Result<usize> {
         self.page_range_tracker.check(vpn)?;
         let ppn = match self.area_mapping {
             AreaMapping::Identical => {
@@ -211,7 +242,7 @@ impl Area {
     }
 
     /// Map all virtual pages
-    pub fn map(&mut self) -> Result<()> {
+    fn map(&mut self) -> Result<()> {
         for vpn in self.page_range_tracker.page_range() {
             self.map_one(vpn)?;
         }
@@ -219,7 +250,7 @@ impl Area {
     }
 
     /// Unallocate all virtual pages
-    pub fn unmap(&mut self) -> Result<()> {
+    fn unmap(&mut self) -> Result<()> {
         for vpn in self.page_range_tracker.page_range() {
             self.unmap_one(vpn)?;
         }
@@ -227,7 +258,7 @@ impl Area {
     }
 
     /// # Unsafe
-    /// force convert the vpn binary data into a struct
+    /// Force convert the vpn binary data into a struct
     /// # Arguments
     /// * vpn: The virtual page number to convert
     /// * offset: the first byte offset
@@ -304,22 +335,52 @@ mod tests {
     use super::*;
 
     #[test_case]
-    fn test_area_write_page() {
+    fn test_area_from_another() {
         let page_table = Arc::new(unsafe { UserPromiseRefCell::new(*PageTable::new(0).unwrap()) });
-        let page_range_allocator = Arc::new(LinkedListPageRangeAllocator::new(
+        let allocator = Arc::new(LinkedListPageRangeAllocator::new(
             0,
             *super::super::MAX_VIRTUAL_PAGE_NUMBER + 1,
         ));
-        let mut area = Area::new(
+        let area = Area::new(
             0,
             1,
             PageTableFlags::R,
             AreaMapping::Framed,
-            &page_range_allocator,
+            &allocator,
             &page_table,
         )
         .unwrap();
-        area.map().unwrap();
+        assert!(Area::from_another(&area, &allocator, &page_table).is_err());
+        let other_page_table = Arc::new(unsafe { UserPromiseRefCell::new(*PageTable::new(1).unwrap()) });
+        let other_allocator = Arc::new(LinkedListPageRangeAllocator::new(
+            0,
+            *super::super::MAX_VIRTUAL_PAGE_NUMBER + 1,
+        ));
+        let result = Area::from_another(&area, &other_allocator, &other_page_table);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.flags.bits(), area.flags.bits());
+        assert_eq!(result.area_mapping, area.area_mapping);
+        assert_eq!(result.page_range_tracker.start_vpn(), area.page_range_tracker.start_vpn());
+        assert_eq!(result.page_range_tracker.end_vpn(), area.page_range_tracker.end_vpn());
+    }
+
+    #[test_case]
+    fn test_area_write_page() {
+        let page_table = Arc::new(unsafe { UserPromiseRefCell::new(*PageTable::new(0).unwrap()) });
+        let allocator = Arc::new(LinkedListPageRangeAllocator::new(
+            0,
+            *super::super::MAX_VIRTUAL_PAGE_NUMBER + 1,
+        ));
+        let area = Area::new(
+            0,
+            1,
+            PageTableFlags::R,
+            AreaMapping::Framed,
+            &allocator,
+            &page_table,
+        )
+        .unwrap();
         assert_eq!(
             area.get_byte_array(0).unwrap(),
             &[0; configs::MEMORY_PAGE_BYTE_SIZE]
@@ -352,7 +413,6 @@ mod tests {
             &page_table,
         )
         .unwrap();
-        area.map().unwrap();
         assert_eq!(
             area.get_byte_array(0).unwrap(),
             &[0; configs::MEMORY_PAGE_BYTE_SIZE]

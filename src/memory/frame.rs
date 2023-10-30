@@ -102,7 +102,7 @@ impl FRAME_ALLOCATOR {
 pub fn init_frame_allocator() {
     let start = PageTable::get_ppn_with(configs::_addr_free_mem_start as usize);
     let end = PageTable::get_ppn_with(configs::_addr_free_mem_end as usize);
-    info!(
+    debug!(
         "[{:>12}, {:>12}): Frame memory page initialized",
         start, end
     );

@@ -28,38 +28,62 @@ cfg_if! {
         #[repr(C)]
         #[derive(Debug)]
         pub struct TrapContext {
-            // WARNING: could not change the ordering of the fields in this structure,
-            // because the context instance might be initialized by assembly code in the assembly/trampoline.asm
+            /// WARNING: could not change the ordering of the fields in this structure,
+            /// because the context instance might be initialized by assembly code in the assembly/trampoline.asm
 
-            // general purpose registers
+            /// general purpose registers
             pub x: [usize; 32],
-            // supervisor status register
+            /// supervisor status register
             pub sstatus: usize,
-            // supervisor exception program counter
+            /// supervisor exception program counter
             pub sepc: usize,
-            // the value of the kernel mmu token, which contain the page number of the root page table
+            /// the value of the kernel mmu token, which contain the page number of the root page table
             pub kernel_mmu_token: usize,
-            // the virtual address of the kernel trap handler in the kernel space,
-            // because the trap handler will be injected as the trampoline space,
-            // which into all the space(including kernel space) at the max virutal page.
-            // it looks like unnecessary in the trap context,
-            // but we cannot remove it because task cannot load this value which is in the kernel space.
-            // we must copy it into trap context when the task is creating
+            /// the virtual address of the kernel trap handler in the kernel space,
+            /// because the trap handler will be injected as the trampoline space,
+            /// which into all the space(including kernel space) at the max virutal page.
+            /// it looks like unnecessary in the trap context,
+            /// but we cannot remove it because task cannot load this value which is in the kernel space.
+            /// we must copy it into trap context when the task is creating
             pub trap_handler_va: usize,
-            // the virtual address of the kernel task stack in the kernel space
+            /// the virtual address of the kernel task stack in the kernel space
             pub kernel_sp_va: usize,
         }
 
         impl TrapContext {
-            // write value to x2 register (sp)
-            // @sp: the stack pointer memory address
+            /// Write value to x2 register (sp)
+            ///
+            /// # Arguments
+            /// * sp: the stack pointer memory address
             pub fn set_sp(&mut self, sp: usize) {
                 self.x[2] = sp;
             }
 
+            /// Write value to argument register
+            ///
+            /// # Arguments
+            /// * index: the index of the argument register
+            /// * value: the value which will be written
+            pub fn set_arg(&mut self, index: usize, value: usize) {
+                self.x[10 + index] = value;
+            }
 
-            // Unfortunately, riscv crate's Sstatus structure doesn't support any method to set sstatus's bits
-            // so we have to read every bits out and change it by ourselves :(
+            /// Read x10 register (a0) value
+            /// 
+            /// # Arguments
+            /// * index: the index of the argument register
+            pub fn get_arg(&self, index: usize) -> usize {
+                self.x[10 + index]
+            }
+
+            /// Make supervisor exception program counter to next instruction
+            pub fn sepc_to_next_instruction(&mut self) -> usize {
+                self.sepc += 4;
+                self.sepc
+            }
+
+            /// Unfortunately, riscv crate's Sstatus structure doesn't support any method to set sstatus's bits
+            /// so we have to read every bits out and change it by ourselves :(
             fn read_sstatus_bits() -> usize {
                 let sts = sstatus::read();
                 let mut bits = 0;
@@ -75,10 +99,10 @@ cfg_if! {
                 bits
             }
 
-            // init app context
-            // @entry: application code entry point memory address
-            // @user_stack_top_va:  the virtual address of the user stack in the user space
-            // @kernel_stack_top_va: the virtual address of the kernel task stack in the kernel space
+            /// init app context
+            /// @entry: application code entry point memory address
+            /// @user_stack_top_va:  the virtual address of the user stack in the user space
+            /// @kernel_stack_top_va: the virtual address of the kernel task stack in the kernel space
             pub fn create_app_init_context(entry: usize, user_stack_top_va: usize, kernel_stack_top_va: usize) -> Self {
                 // for app context, the supervisor previous privilege mode must be user
                 let mut sts = Self::read_sstatus_bits();

@@ -34,8 +34,7 @@ impl TaskContext {
         }
     }
 
-    /// Make the [crate::trap::handler::trap_return] as the return address
-    /// after switching to the other
+    /// Make the [crate::trap::handler::trap_return] as the return address after switching to the other
     pub fn goto_trap_return(&mut self, kernel_stack_ctx_va: usize) {
         self.ra = trap_return as usize;
         self.sp = kernel_stack_ctx_va;

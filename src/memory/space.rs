@@ -5,6 +5,7 @@
 
 // use other mods
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use elf::abi;
@@ -17,17 +18,18 @@ use super::allocator::LinkedListPageRangeAllocator;
 use super::area::{Area, AreaMapping};
 use super::page_table::{PageTable, MAX_TASK_ID};
 use super::{PageTableFlags, PageTableTr};
+use crate::constant::ascii;
 use crate::lang::container::UserPromiseRefCell;
 use crate::sbi::{self, SBIApi};
 use crate::{configs, prelude::*};
 
 /// The abstract structure which represents the virtual memory address space
 pub struct Space {
-    /// areas of the virtual page range, which keys are the the start and end virtual page number
+    /// Areas of the virtual page range, which keys are the the start and end virtual page number
     area_set: BTreeMap<(usize, usize), Area>,
-    /// the table of pages represented by the virtual address space
+    /// The table of pages represented by the virtual address space
     page_table: Arc<UserPromiseRefCell<PageTable>>,
-    /// the allocator used to manage the areas page range,
+    /// The allocator used to manage the areas page range,
     /// each area will alloc a range of the virtual page numbers and each range cannot have overlapping parts
     page_range_allocator: Arc<LinkedListPageRangeAllocator>,
 }
@@ -53,14 +55,14 @@ impl Space {
     /// ---------------------------------
     ///
     /// # Arguments
-    /// * task_id: the task unique id
+    /// * asid: the address space unique id
     ///
     /// # Returns
     /// * (start virtual page number, end virtual page number)
-    fn get_kernel_task_stack_vpn_range(task_id: usize) -> (usize, usize) {
+    pub fn get_kernel_task_stack_vpn_range(asid: usize) -> (usize, usize) {
         let max_vpn = *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER;
         let stack_page_count = Self::vpn_ceil(configs::KERNEL_TASK_STACK_BYTE_SIZE);
-        let end_vpn = max_vpn - (stack_page_count + configs::KERNEL_GUARD_PAGE_COUNT) * task_id;
+        let end_vpn = max_vpn - (stack_page_count + configs::KERNEL_GUARD_PAGE_COUNT) * asid;
         let start_vpn = end_vpn - stack_page_count;
         (start_vpn, end_vpn)
     }
@@ -88,7 +90,7 @@ impl Space {
     ///
     /// # Returns
     /// * (start virtual page number, end virtual page number)
-    fn get_user_task_stack_vpn_range(end_va: usize) -> (usize, usize) {
+    pub fn get_user_task_stack_vpn_range(end_va: usize) -> (usize, usize) {
         let start_va = end_va + configs::KERNEL_GUARD_PAGE_COUNT * configs::MEMORY_PAGE_BYTE_SIZE;
         let end_va = start_va + configs::USER_TASK_STACK_BYTE_SIZE;
         (Self::vpn_ceil(start_va), Self::vpn_ceil(end_va))
@@ -129,12 +131,6 @@ impl Space {
             .ok_or(KernelError::VPNNotMapped(
                 *super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER,
             ))
-    }
-
-    /// Get the memory manager unit token's asid, which token is pointed to the space's page table
-    #[inline(always)]
-    pub fn mmu_asid(&self) -> usize {
-        self.page_table.access().asid()
     }
 
     /// Get the memory manager unit token, which is pointed to the space's page table
@@ -231,17 +227,22 @@ impl Space {
         )
     }
 
-    /// Translate byte buffers from current space to the current stack memory space.
-    /// Only kernel space allow to access all of the physical frame in memory,
+    /// Translate byte buffers from current space to the current stack.
+    /// Only kernel space allow to access all of the physical frame in memory.
     /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
+    /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
     ///
     /// # Arguments
     /// * ptr: the pointer of the byte slice
     /// * len: the length of the byte slice
     ///
     /// # Returns
-    /// * Ok(Vec[&[u8]])
-    pub fn translated_byte_buffers(&self, ptr: *const u8, len: usize) -> Result<Vec<&[u8]>> {
+    /// * Ok(Vec[mut &'static [u8]])
+    pub fn translated_byte_buffers(
+        &self,
+        ptr: *const u8,
+        len: usize,
+    ) -> Result<Vec<&'static mut [u8]>> {
         let mut start_va = ptr as usize;
         let end_va = start_va + len;
         let mut buffers = vec![];
@@ -256,16 +257,66 @@ impl Space {
                 a => a,
             };
             let buffer = page_table.get_byte_array(Self::vpn_floor(tmp_start_va))?;
-            buffers.push(&buffer[tmp_start_offset..tmp_end_offset]);
+            buffers.push(&mut buffer[tmp_start_offset..tmp_end_offset]);
             start_va = tmp_end_va;
         }
         Ok(buffers)
     }
 
+    /// Translate a byte pointer into the String from current space to the current stack,
+    /// it will extract each char until reach the NULL(\0) char.
+    /// Only kernel sapce allow to access all of the physical frame in memory.
+    /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
+    /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
+    ///
+    /// # Arguments
+    /// * ptr: the pointer of the string
+    ///
+    /// # Returns
+    /// Ok(String)
+    pub fn translated_string(&self, ptr: *const u8) -> Result<String> {
+        let mut start_va = ptr as usize;
+        let mut string = String::new();
+        let page_table = self.page_table.access();
+        'outer: loop {
+            let tmp_start_va = start_va;
+            let tmp_start_offset = PageTable::get_va_offset(tmp_start_va);
+            let tmp_byte_length = configs::MEMORY_PAGE_BYTE_SIZE - tmp_start_offset;
+            let tmp_end_va = tmp_start_va + tmp_byte_length;
+            let buffer = page_table.get_byte_array(Self::vpn_floor(tmp_start_va))?;
+            for offset in tmp_start_offset..configs::MEMORY_PAGE_BYTE_SIZE {
+                let byte = buffer[offset];
+                if byte == ascii::NULL {
+                    break 'outer;
+                }
+                string.push(byte as char);
+            }
+            start_va = tmp_end_va;
+        }
+        Ok(string)
+    }
+
+    /// Translate a pointer into other type from current space to the current stack.
+    /// Only kernel sapce allow to access all of the physical frame in memory.
+    /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
+    /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
+    ///
+    /// # Arguments
+    /// * ptr: the pointer of generate type T
+    ///
+    /// # Returns
+    /// Ok(&mut T)
+    pub fn translated_refmut<T>(&self, ptr: *const T) -> Result<&mut T> {
+        let vpn = Self::vpn_floor(ptr as usize);
+        let offset = PageTable::get_va_offset(ptr as usize);
+        self.page_table
+            .exclusive_access()
+            .as_kernel_mut(vpn, offset)
+    }
+
     /// Map trampoline frame to the current address space's max page,
     /// By default, we assume that all code in trampoline page are addressed relative to registers,
-    /// so all address spaces can share the same trampoline of kernel
-    /// space by registering page table entry only
+    /// so all address spaces can share the same trampoline of kernel space by registering page table entry only
     ///
     /// IN TASK OR KERNEL SPACE:
     /// --------------------------------- <- MAX virtual address
@@ -291,7 +342,7 @@ impl Space {
             *super::TRAMPOLINE_PHYSICAL_PAGE_NUMBER,
             PageTableFlags::RX,
         )?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}] -> [{:#018x}, {:#018x}): mapped trampoline segment address range",
             PageTable::cal_base_va_with(*super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER),
             configs::MAX_VIRTUAL_ADDRESS,
@@ -303,7 +354,7 @@ impl Space {
 
     /// When we enable the MMU virtual memory mechanism,
     /// the kernel-state code will also be addressed based on virtual memory,
-    /// so we need to create a kernel address space
+    /// so we need to create a kernel address space,
     /// whose lower half virtual address are directly equal to the physical address
     ///
     ///                    --------------------------------- <- MAX virtual address
@@ -338,7 +389,7 @@ impl Space {
         for (start_va, end_va) in configs::MMIO {
             let start_vpn = Self::vpn_floor(*start_va);
             let end_vpn = Self::vpn_ceil(*end_va);
-            let mut area = Area::new(
+            let area = Area::new(
                 start_vpn,
                 end_vpn,
                 PageTableFlags::RW,
@@ -346,9 +397,8 @@ impl Space {
                 &space.page_range_allocator,
                 &space.page_table,
             )?;
-            area.map()?;
             space.push(area, 0, None)?;
-            info!(
+            debug!(
                 "[{:#018x}, {:#018x}): mapped kernel memory-mapped io registers virtual address range",
                 PageTable::cal_base_va_with(start_vpn),
                 PageTable::cal_base_va_with(end_vpn),
@@ -357,7 +407,7 @@ impl Space {
         let start_vpn = Self::vpn_floor(configs::_addr_text_start as usize);
         let end_vpn = Self::vpn_ceil(configs::_addr_text_end as usize);
         // map code segement as area
-        let mut area = Area::new(
+        let area = Area::new(
             start_vpn,
             end_vpn,
             PageTableFlags::RX,
@@ -365,9 +415,8 @@ impl Space {
             &space.page_range_allocator,
             &space.page_table,
         )?;
-        area.map()?;
         space.push(area, 0, None)?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}): mapped kernel .text segment address range",
             PageTable::cal_base_va_with(start_vpn),
             PageTable::cal_base_va_with(end_vpn),
@@ -375,7 +424,7 @@ impl Space {
         // map read only data segement as area
         let start_vpn = Self::vpn_floor(configs::_addr_rodata_start as usize);
         let end_vpn = Self::vpn_ceil(configs::_addr_rodata_end as usize);
-        let mut area = Area::new(
+        let area = Area::new(
             start_vpn,
             end_vpn,
             PageTableFlags::R,
@@ -383,9 +432,8 @@ impl Space {
             &space.page_range_allocator,
             &space.page_table,
         )?;
-        area.map()?;
         space.push(area, 0, None)?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}): mapped kernel .rodata segment address range",
             PageTable::cal_base_va_with(start_vpn),
             PageTable::cal_base_va_with(end_vpn),
@@ -395,7 +443,7 @@ impl Space {
         let end_vpn = Self::vpn_ceil(configs::_addr_data_end as usize);
         // A read/write data segment may be empty
         if start_vpn != end_vpn {
-            let mut area = Area::new(
+            let area = Area::new(
                 start_vpn,
                 end_vpn,
                 PageTableFlags::RW,
@@ -403,9 +451,8 @@ impl Space {
                 &space.page_range_allocator,
                 &space.page_table,
             )?;
-            area.map()?;
             space.push(area, 0, None)?;
-            info!(
+            debug!(
                 "[{:#018x}, {:#018x}): mapped kernel .data segment address range",
                 PageTable::cal_base_va_with(start_vpn),
                 PageTable::cal_base_va_with(end_vpn),
@@ -421,7 +468,7 @@ impl Space {
         let start_vpn = Self::vpn_floor(configs::_addr_bss_start as usize);
         let end_vpn = Self::vpn_ceil(configs::_addr_bss_end as usize);
         if start_vpn != end_vpn {
-            let mut area = Area::new(
+            let area = Area::new(
                 start_vpn,
                 end_vpn,
                 PageTableFlags::RW,
@@ -429,9 +476,8 @@ impl Space {
                 &space.page_range_allocator,
                 &space.page_table,
             )?;
-            area.map()?;
             space.push(area, 0, None)?;
-            info!(
+            debug!(
                 "[{:#018x}, {:#018x}): mapped kernel .bss segment address range",
                 PageTable::cal_base_va_with(start_vpn),
                 PageTable::cal_base_va_with(end_vpn),
@@ -447,7 +493,7 @@ impl Space {
         let start_vpn = Self::vpn_floor(configs::_addr_free_mem_start as usize);
         // Be careful, the last page will be mapped as the trampoline page
         let end_vpn = Self::vpn_floor(configs::_addr_free_mem_end as usize);
-        let mut area = Area::new(
+        let area = Area::new(
             start_vpn,
             end_vpn,
             PageTableFlags::RW,
@@ -455,9 +501,8 @@ impl Space {
             &space.page_range_allocator,
             &space.page_table,
         )?;
-        area.map()?;
         space.push(area, 0, None)?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}): mapped kernel free physical memory",
             PageTable::cal_base_va_with(start_vpn),
             PageTable::cal_base_va_with(end_vpn),
@@ -465,6 +510,10 @@ impl Space {
         // map trampoline page
         space.map_trampoline()?;
         Ok(space)
+    }
+
+    pub fn recycle_data_pages(&mut self) {
+        self.area_set.clear();
     }
 }
 
@@ -523,12 +572,12 @@ impl KERNEL_SPACE {
     /// --------------------------------- <- MIN virtual address
     ///
     /// # Arguments
-    /// * task_id: the unique id of the task
+    /// * asid: the unique id of the address space
     /// * data: the elf binary byte data sclice
     ///
     /// # Returns
     /// * Ok((Self, user_stack_top_va, kernel_stack_top_va, elf_entry_point))
-    pub fn new_task_from_elf(task_id: usize, data: &[u8]) -> Result<(Space, usize, usize, usize)> {
+    pub fn new_user_from_elf(asid: usize, data: &[u8]) -> Result<(Space, usize, usize)> {
         let elf_bytes = ElfBytes::<AnyEndian>::minimal_parse(data)?;
         let program_headers: Vec<ProgramHeader> = elf_bytes
             .segments()
@@ -540,7 +589,7 @@ impl KERNEL_SPACE {
         if program_headers.len() == 0 {
             return Err(KernelError::UnloadableTask);
         }
-        let mut space = Space::new_bare(task_id)?;
+        let mut space = Space::new_bare(asid)?;
         let mut max_end_va: usize = 0;
         for (index, phdr) in program_headers.iter().enumerate() {
             let start_va = phdr.p_vaddr;
@@ -550,7 +599,7 @@ impl KERNEL_SPACE {
             // Task code and data was restricted as User Mode flags
             let flags = Self::convert_flags(phdr.p_flags);
             max_end_va = end_va as usize;
-            let mut area = Area::new(
+            let area = Area::new(
                 start_vpn,
                 end_vpn,
                 flags | PageTableFlags::U,
@@ -558,10 +607,9 @@ impl KERNEL_SPACE {
                 &space.page_range_allocator,
                 &space.page_table,
             )?;
-            area.map()?;
             let segment = elf_bytes.segment_data(&phdr)?;
             space.push(area, 0, Some(segment))?;
-            info!(
+            debug!(
                 "[{:#018x}, {:#018x}): mapped {} segment address range",
                 PageTable::cal_base_va_with(start_vpn),
                 PageTable::cal_base_va_with(end_vpn),
@@ -576,7 +624,7 @@ impl KERNEL_SPACE {
         let (user_stack_bottom_vpn, user_stack_top_vpn) =
             Space::get_user_task_stack_vpn_range(max_end_va);
         // Map user stack with User Mode flag
-        let mut area = Area::new(
+        let area = Area::new(
             user_stack_bottom_vpn,
             user_stack_top_vpn,
             PageTableFlags::RWU,
@@ -584,15 +632,14 @@ impl KERNEL_SPACE {
             &space.page_range_allocator,
             &space.page_table,
         )?;
-        area.map()?;
         space.push(area, 0, None)?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}): mapped user stack segment address range",
             PageTable::cal_base_va_with(user_stack_bottom_vpn),
             PageTable::cal_base_va_with(user_stack_top_vpn),
         );
         // Map TrapContext with No User Mode flag
-        let mut area = Area::new(
+        let area = Area::new(
             *super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER,
             *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER,
             PageTableFlags::RW,
@@ -600,39 +647,62 @@ impl KERNEL_SPACE {
             &space.page_range_allocator,
             &space.page_table,
         )?;
-        area.map()?;
         space.push(area, 0, None)?;
-        info!(
+        debug!(
             "[{:#018x}, {:#018x}): mapped trap context segment address range",
             PageTable::cal_base_va_with(*super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER),
             PageTable::cal_base_va_with(*super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER),
         );
         space.map_trampoline()?;
         // Map a kernel task stack in to kernel's higher half virtual address part
-        let kernel_stack_top_vpn = KERNEL_SPACE.map_kernel_task_stack(task_id)?;
         Ok((
             space,
             PageTable::cal_base_va_with(user_stack_top_vpn),
-            PageTable::cal_base_va_with(kernel_stack_top_vpn),
             elf_bytes.ehdr.e_entry as usize,
         ))
+    }
+
+    /// Create a new user space according to other user space,
+    /// which will copy all of the bytes from other user space areas into new user space.
+    /// Because if we want to fork a new task from origin, we need to copy all of the memory from it.
+    ///
+    /// # Arguments
+    /// * asid: the address space unique id
+    /// * another: the reference to the other user space
+    ///
+    /// # Returns
+    /// * Ok(Space)
+    pub fn new_user_from_another(asid: usize, another: &Space) -> Result<Space> {
+        let mut space = Space::new_bare(asid)?;
+        for ((start_vpn, end_vpn), other_area) in another.area_set.iter() {
+            let area =
+                Area::from_another(other_area, &space.page_range_allocator, &space.page_table)?;
+            for vpn in *start_vpn..*end_vpn {
+                let src = other_area.get_byte_array(vpn)?;
+                let dst = area.get_byte_array(vpn)?;
+                dst.copy_from_slice(src);
+            }
+            space.push(area, 0, None)?;
+        }
+        space.map_trampoline()?;
+        Ok(space)
     }
 
     /// Each time creating a new task's space, we should map a task stack in kernel space at the same time.
     /// the range of the virtual address in kernel space is related to the task's unique id.
     ///
     /// # Arguments
-    /// * task_id: task's unique id
+    /// * asid: address space unique id
     ///
     /// # Returns
     /// * Ok(kernel stack top vpn)
-    pub fn map_kernel_task_stack(&self, task_id: usize) -> Result<usize> {
+    pub fn map_kernel_task_stack(&self, asid: usize) -> Result<usize> {
         let (kernel_stack_bottom_vpn, kernel_stack_top_vpn) =
-            Space::get_kernel_task_stack_vpn_range(task_id);
-        let kernel_space = self.access();
+            Space::get_kernel_task_stack_vpn_range(asid);
+        let mut kernel_space = self.exclusive_access();
         // Map task's kernel stack area in space
         // It must be drop by task
-        let mut area = Area::new(
+        let area = Area::new(
             kernel_stack_bottom_vpn,
             kernel_stack_top_vpn,
             PageTableFlags::RW,
@@ -640,9 +710,7 @@ impl KERNEL_SPACE {
             &kernel_space.page_range_allocator,
             &kernel_space.page_table,
         )?;
-        area.map()?;
-        drop(kernel_space);
-        self.exclusive_access().push(area, 0, None)?;
+        kernel_space.push(area, 0, None)?;
         debug!(
             "[{:#018x}, {:#018x}): mapped kernel task stack segment address range",
             PageTable::cal_base_va_with(kernel_stack_bottom_vpn),
@@ -654,9 +722,12 @@ impl KERNEL_SPACE {
     /// Each time we destroy task, we should unmap the task stack in kernel space at the same time.
     ///
     /// # Arguments
-    /// * task_id: task's unique id
-    pub fn unmap_kernel_task_stack(&self, task_id: usize) -> Result<()> {
-        let (start_vpn, end_vpn) = Space::get_kernel_task_stack_vpn_range(task_id);
+    /// * asid: address space unique id
+    ///
+    /// # Returns
+    /// * Ok(())
+    pub fn unmap_kernel_task_stack(&self, asid: usize) -> Result<()> {
+        let (start_vpn, end_vpn) = Space::get_kernel_task_stack_vpn_range(asid);
         self.exclusive_access().pop(start_vpn, end_vpn)?;
         debug!(
             "[{:#018x}, {:#018x}): unmapped kernel task stack segment address range",
@@ -767,39 +838,14 @@ mod tests {
 
     #[test_case]
     fn test_kernel_space_map_and_unmap_kernel_task_stack() {
-        // try create task 0's kernel stack
-        assert!(KERNEL_SPACE
-            .map_kernel_task_stack(0)
-            .is_ok_and(|vpn| *vpn == *TRAMPOLINE_VIRTUAL_PAGE_NUMBER));
-        assert!(KERNEL_SPACE
-            .access()
-            .page_table
-            .access()
-            .translate_ppn_with(*TRAMPOLINE_VIRTUAL_PAGE_NUMBER)
-            .is_some_and(|ppn| *ppn != 0));
-        assert!(KERNEL_SPACE.unmap_kernel_task_stack(0).is_ok());
-        // retry to create task 0's kernel stack
-        assert!(KERNEL_SPACE
-            .map_kernel_task_stack(0)
-            .is_ok_and(|vpn| *vpn == *TRAMPOLINE_VIRTUAL_PAGE_NUMBER));
-        assert!(KERNEL_SPACE
-            .access()
-            .page_table
-            .access()
-            .translate_ppn_with(*TRAMPOLINE_VIRTUAL_PAGE_NUMBER)
-            .is_some_and(|ppn| *ppn != 0));
-        assert!(KERNEL_SPACE.unmap_kernel_task_stack(0).is_ok());
+        // try create task 3's kernel stack
+        assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_ok());
+        assert!(KERNEL_SPACE.unmap_kernel_task_stack(3).is_ok());
         // try to duplicate create task kernel stack
         assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_ok_and(|vpn| *vpn
             == *TRAMPOLINE_VIRTUAL_PAGE_NUMBER
                 - 3 * (configs::KERNEL_GUARD_PAGE_COUNT
                     + (configs::KERNEL_TASK_STACK_BYTE_SIZE / configs::MEMORY_PAGE_BYTE_SIZE))));
-        assert!(KERNEL_SPACE
-            .access()
-            .page_table
-            .access()
-            .translate_ppn_with(*TRAMPOLINE_VIRTUAL_PAGE_NUMBER)
-            .is_some_and(|ppn| *ppn != 0));
         assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_err());
         assert!(KERNEL_SPACE.unmap_kernel_task_stack(3).is_ok());
     }

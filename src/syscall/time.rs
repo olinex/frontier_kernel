@@ -9,6 +9,8 @@
 use crate::prelude::*;
 use crate::lang::timer;
 
+/// Get the current timer value as microseconds,
+/// which is the time duration from the moment when cpu reset to the current moment
 pub fn sys_get_time() -> Result<isize> {
-    Ok(timer::get_time_us() as isize)
+    Ok(timer::get_timer_us() as isize)
 }

@@ -21,12 +21,7 @@ extern "C" {
     /// Assembly function whitch will save current task's ra/sp/callee saved registers.
     /// For switching to other task, we must restore the registers by the task we want to run in the next time.
     pub fn _fn_switch_task(
-        next_task_ctx_ptr: *const TaskContext,
         current_task_ctx_ptr: *mut TaskContext,
-    );
-
-    /// Assembly function whitch will just force restore the registers and run the next task
-    pub fn _fn_run_first_task(
-        next_task_ctx_ptr: *const TaskContext
+        next_task_ctx_ptr: *const TaskContext,
     );
 }

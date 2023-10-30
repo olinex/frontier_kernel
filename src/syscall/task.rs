@@ -9,7 +9,10 @@
 use crate::prelude::*;
 use crate::task;
 
-// yield to other task
+/// Yield to other task, current task will be suspended
+/// 
+/// # Returns
+/// * Ok(0)
 pub fn sys_yield() -> Result<isize> {
     task::suspend_current_and_run_other_task()?;
     Ok(0)

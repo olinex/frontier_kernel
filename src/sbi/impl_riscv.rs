@@ -13,23 +13,13 @@ use super::{SBIApi, SBI};
 
 impl SBIApi for SBI {
     #[inline(always)]
-    fn console_putchar(c: u8) {
-        legacy::console_putchar(c)
-    }
-
-    #[inline(always)]
     fn shutdown() -> ! {
         legacy::shutdown()
     }
 
     #[inline(always)]
-    fn set_timer(timer: usize) {
-        legacy::set_timer(timer as u64);
-    }
-
-    #[inline(always)]
-    fn get_time() -> usize {
-        time::read()
+    unsafe fn sync_icache() {
+        asm!("fence.i");
     }
 
     #[inline(always)]
@@ -38,28 +28,43 @@ impl SBIApi for SBI {
     }
 
     #[inline(always)]
-    unsafe fn fence_i() {
-        asm!("fence.i");
+    fn console_putchar(c: u8) {
+        legacy::console_putchar(c)
     }
 
     #[inline(always)]
-    unsafe fn set_stimer() {
+    fn console_getchar() -> Option<u8> {
+        legacy::console_getchar()
+    }
+
+    #[inline(always)]
+    fn get_timer() -> usize {
+        time::read()
+    }
+
+    #[inline(always)]
+    fn set_timer(timer: usize) {
+        legacy::set_timer(timer as u64);
+    }
+
+    #[inline(always)]
+    unsafe fn enable_timer_interrupt() {
         sie::set_stimer();
-    }
-
-    #[inline(always)]
-    unsafe fn sfence_vma() {
-        asm!("sfence.vma");
-    }
-
-    #[inline(always)]
-    unsafe fn write_mmu_token(token: usize) {
-        satp::write(token);
-        asm!("sfence.vma");
     }
 
     #[inline(always)]
     fn read_mmu_token() -> usize {
         satp::read().bits()
+    }
+
+    #[inline(always)]
+    unsafe fn write_mmu_token(token: usize) {
+        satp::write(token);
+        Self::sync_tlb();
+    }
+
+    #[inline(always)]
+    unsafe fn sync_tlb() {
+        asm!("sfence.vma");
     }
 }

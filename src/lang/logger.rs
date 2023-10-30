@@ -19,7 +19,7 @@ impl log::Log for KernelLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            println!("[kernel] {} - {}", record.level(), record.args());
+            println!("[kernel] {} {}", record.level(), record.args());
         }
     }
 
@@ -32,5 +32,5 @@ pub fn init() {
     if let Err(error) = log::set_logger(&LOGGER) {
         panic!("Could not set logger cause by {}", error);
     }
-    log::set_max_level(LevelFilter::Info);
+    log::set_max_level(LevelFilter::Trace);
 }
