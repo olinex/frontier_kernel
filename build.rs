@@ -7,21 +7,23 @@
 // but it does integrate with them with custom build scripts.
 // Placing a file named build.rs in the root of a package will cause Cargo to compile that script and execute it just before building the package.
 
-
 use std::fs::{read_dir, File};
 use std::io::{Result, Write};
 
-static TARGET_PATH: &str = "../frontier_user/target/riscv64gc-unknown-none-elf/release/";
+const USER_CRATE_DIR_NAME: &str = "../frontier_user";
 
 fn main() {
-    println!("cargo:rerun-if-changed=../frontier_user/src/");
-    println!("cargo:rerun-if-changed={}", TARGET_PATH);
-    insert_app_data().unwrap();
+    let target = std::env::var("TARGET").unwrap();
+    let target_path = format!("{}/target/{}/release/", USER_CRATE_DIR_NAME, &target,);
+    println!("cargo:rerun-if-changed={}/src/", USER_CRATE_DIR_NAME);
+    println!("cargo:rerun-if-changed={}", &target_path);
+    insert_app_data(&target_path).unwrap();
 }
 
-fn insert_app_data() -> Result<()> {
-    let mut f = File::create("./src/assembly/riscv64/link_app.asm")?;
-    let mut apps: Vec<_> = read_dir("../frontier_user/src/bin")?
+fn insert_app_data(target_path: &str) -> Result<()> {
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let mut f = File::create(format!("./src/assembly/{}/link_app.asm", arch))?;
+    let mut apps: Vec<_> = read_dir(format!("{}/src/bin", USER_CRATE_DIR_NAME))?
         .into_iter()
         .map(|dir_entry| {
             let mut name_with_ext = dir_entry.unwrap().file_name().into_string().unwrap();
@@ -49,7 +51,7 @@ _addr_app_count:
         writeln!(f, r#"    .quad app_{}_start"#, i)?;
         writeln!(f, r#"    .quad app_{}_end"#, i)?;
     }
-    
+
     writeln!(f, r#"_app_names:"#)?;
     for app in apps.iter() {
         writeln!(f, r#"    .string "{}""#, app)?;
@@ -67,7 +69,7 @@ _addr_app_count:
 app_{0}_start:
     .incbin "{2}{1}"
 app_{0}_end:"#,
-            idx, app, TARGET_PATH
+            idx, app, target_path
         )?;
     }
     Ok(())

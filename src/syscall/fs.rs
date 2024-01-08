@@ -4,6 +4,7 @@
 // self mods
 
 // use other mods
+use frontier_fs::OpenFlags;
 
 // use self mods
 use crate::constant::*;
@@ -14,6 +15,33 @@ use crate::task::*;
 pub mod descriptor {
     pub const STDIN: usize = 0;
     pub const STDOUT: usize = 1;
+}
+
+/// Open a file and return the file descriptor.
+/// If the descriptor is less than zero, it means there was an error
+/// 
+/// # Arguments
+/// * path: the path to the file, it must end with \0 char
+/// * flags: the unsigned value of the open flags
+/// 
+/// # Returns
+/// * Ok(FileDescriptor)
+/// * KernelError::InvalidOpenFlags(flags)
+pub fn sys_open(path: *const u8, flags: u32) -> Result<isize> {
+    let flags = OpenFlags::from_bits(flags).ok_or(KernelError::InvalidOpenFlags(flags))?;
+    Ok(0)
+}
+
+/// Close a file and return the status code.
+/// 
+/// # Arguments
+/// * fd: the file descriptor
+/// 
+/// # Return
+/// * Ok(0)
+/// * Ok(-1)
+pub fn sys_close(fd: usize) -> Result<isize> {
+    Ok(0)
 }
 
 /// Write a &str to the IO device.

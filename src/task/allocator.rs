@@ -96,12 +96,12 @@ mod tests {
         allocator.init(0, 1);
         assert_eq!(allocator.current_pid, 0);
         assert_eq!(allocator.end_pid, 1);
-        assert!(allocator.alloc().is_ok_and(|t| *t == 0));
+        assert!(allocator.alloc().is_ok_and(|t| t == 0));
         assert_eq!(allocator.current_pid, 1);
         assert_eq!(allocator.end_pid, 1);
         assert!(allocator.alloc().is_err_and(|t| t.is_pidexhausted()));
         assert!(allocator.dealloc(0).is_ok());
-        assert!(allocator.alloc().is_ok_and(|t| *t == 0));
+        assert!(allocator.alloc().is_ok_and(|t| t == 0));
         assert_eq!(allocator.current_pid, 1);
         assert_eq!(allocator.end_pid, 1);
         assert!(allocator.alloc().is_err_and(|t| t.is_pidexhausted()));

@@ -38,17 +38,6 @@ cfg_if! {
     }
 }
 
-// the word size of the arch
-// cfg_if! {
-//     if #[cfg(target_arch = "riscv64")] {
-//         pub const ARCH_WORD_SIZE: usize = 64;
-//     } else if #[cfg(target_arch = "riscv32")] {
-//         pub const ARCH_WORD_SIZE: usize = 32;
-//     } else {
-//         compile_error!("Unknown target arch");
-//     }
-// }
-
 // the range of the code sections
 extern "C" {
     pub fn _addr_text_start();

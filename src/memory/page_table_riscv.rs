@@ -131,7 +131,7 @@ impl PageTableEntry {
     /// Check current PTE validation
     #[inline(always)]
     pub fn is_valid(&self) -> bool {
-        self.flags() & PTEFlags::V == PTEFlags::V
+        self.flags().contains(PTEFlags::V)
     }
 }
 
@@ -686,20 +686,20 @@ mod tests {
             .is_ok());
         assert!(page_table
             .translate_ppn_with(0)
-            .is_some_and(|ppn| *ppn == 0));
+            .is_some_and(|ppn| ppn == 0));
         assert!(page_table
             .unmap_without_dealloc(0)
-            .is_ok_and(|ppn| *ppn == 0));
+            .is_ok_and(|ppn| ppn == 0));
 
         assert!(page_table
             .map_without_alloc(1, 1, PageTableFlags::R)
             .is_ok());
         assert!(page_table
             .translate_ppn_with(1)
-            .is_some_and(|ppn| *ppn == 1));
+            .is_some_and(|ppn| ppn == 1));
         assert!(page_table
             .unmap_without_dealloc(1)
-            .is_ok_and(|ppn| *ppn == 1));
+            .is_ok_and(|ppn| ppn == 1));
 
         assert!(page_table
             .map_without_alloc(
@@ -710,10 +710,10 @@ mod tests {
             .is_ok());
         assert!(page_table
             .translate_ppn_with(*TRAMPOLINE_VIRTUAL_PAGE_NUMBER)
-            .is_some_and(|ppn| *ppn == *TRAMPOLINE_PHYSICAL_PAGE_NUMBER));
+            .is_some_and(|ppn| ppn == *TRAMPOLINE_PHYSICAL_PAGE_NUMBER));
         assert!(page_table
             .unmap_without_dealloc(*TRAMPOLINE_VIRTUAL_PAGE_NUMBER)
-            .is_ok_and(|ppn| *ppn == *TRAMPOLINE_PHYSICAL_PAGE_NUMBER));
+            .is_ok_and(|ppn| ppn == *TRAMPOLINE_PHYSICAL_PAGE_NUMBER));
     }
 
     #[test_case]
@@ -746,7 +746,6 @@ mod tests {
         let bytes = page_table.get_byte_array(0).unwrap();
         bytes[0] = 1u8;
         bytes[configs::MEMORY_PAGE_BYTE_SIZE - 1] = 1u8;
-        drop(bytes);
         let bytes = page_table.get_byte_array(0).unwrap();
         assert_eq!(bytes[0], 1u8);
         assert_eq!(bytes[configs::MEMORY_PAGE_BYTE_SIZE - 1], 1u8);

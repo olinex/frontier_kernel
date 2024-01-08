@@ -800,7 +800,7 @@ mod tests {
         let vpn = Space::vpn_floor((&KERNEL_SPACE as *const _) as usize);
         assert!(page_table
             .translate_ppn_with(vpn)
-            .is_some_and(|ppn| *ppn == vpn));
+            .is_some_and(|ppn| ppn == vpn));
     }
 
     #[test_case]
@@ -842,7 +842,7 @@ mod tests {
         assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_ok());
         assert!(KERNEL_SPACE.unmap_kernel_task_stack(3).is_ok());
         // try to duplicate create task kernel stack
-        assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_ok_and(|vpn| *vpn
+        assert!(KERNEL_SPACE.map_kernel_task_stack(3).is_ok_and(|vpn| vpn
             == *TRAMPOLINE_VIRTUAL_PAGE_NUMBER
                 - 3 * (configs::KERNEL_GUARD_PAGE_COUNT
                     + (configs::KERNEL_TASK_STACK_BYTE_SIZE / configs::MEMORY_PAGE_BYTE_SIZE))));

@@ -96,7 +96,6 @@ cfg_if! {
                     let arg2 = ctx.get_arg(1);
                     let arg3 = ctx.get_arg(2);
                     ctx.sepc_to_next_instruction();
-                    drop(ctx);
                     drop(inner);
                     drop(task);
                     match syscall(syscall_id, arg1, arg2, arg3) {
@@ -105,7 +104,6 @@ cfg_if! {
                             let inner = task.inner_access();
                             let ctx = inner.trap_ctx().unwrap();
                             ctx.set_arg(0, code as usize);
-                            drop(ctx);
                             drop(inner);
                             drop(task);
                         },

@@ -104,6 +104,10 @@ pub enum KernelError {
     #[error("[kernel] Process have not task")]
     ProcessHaveNotTask,
 
+    #[groups(fs)]
+    #[error("[kernel] Invalid open flags {0:#x}")]
+    InvalidOpenFlags(u32),
+
     #[groups(others, parse, elf)]
     #[error("[kernel] Parse elf error: {0}")]
     ParseElfError(#[from] elf::ParseError),

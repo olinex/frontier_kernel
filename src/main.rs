@@ -3,8 +3,6 @@
 #![no_std]
 #![no_main]
 #![feature(int_roundings)]
-#![feature(is_some_with)]
-#![feature(map_first_last)]
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 #![feature(custom_test_frameworks)]

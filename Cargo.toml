@@ -19,6 +19,7 @@ thiserror-no-std = "2.0.2"
 buddy_system_allocator = "0.9.0"
 elf = { version = "0.7.2", default-features = false }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+frontier_fs = { path = "../frontier_fs" }
 
 [features]
 default = ["board_qemu", "mmu_sv39"]

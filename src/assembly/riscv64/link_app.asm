@@ -57,7 +57,7 @@ _app_names:
     .string "sleep_simple"
     .string "stack_overflow"
     .string "usertests"
-    .string "usertests-simple"
+    .string "usertests_simple"
     .string "yield_out"
 
     .section .data
@@ -185,7 +185,7 @@ app_14_end:
     .global app_15_end
     .align 4
 app_15_start:
-    .incbin "../frontier_user/target/riscv64gc-unknown-none-elf/release/usertests-simple"
+    .incbin "../frontier_user/target/riscv64gc-unknown-none-elf/release/usertests_simple"
 app_15_end:
 
     .section .data

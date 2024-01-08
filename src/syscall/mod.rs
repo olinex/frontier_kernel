@@ -13,6 +13,8 @@ mod time;
 use crate::prelude::*;
 
 mod ids {
+    pub const OPEN: usize = 56;
+    pub const CLOSE: usize = 57;
     pub const READ: usize = 63;
     pub const WRITE: usize = 64;
     pub const EXIT: usize = 93;
@@ -28,6 +30,8 @@ mod ids {
 #[inline(always)]
 pub fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) -> Result<isize> {
     match syscall_id {
+        ids::OPEN => fs::sys_open(arg1 as *const u8, arg2 as u32),
+        ids::CLOSE => fs::sys_close(arg1),
         ids::READ => fs::sys_read(arg1, arg2 as *mut u8, arg3),
         ids::WRITE => fs::sys_write(arg1, arg2 as *const u8, arg3),
         ids::EXIT => process::sys_exit(arg1 as i32),
