@@ -17,27 +17,26 @@ use crate::prelude::*;
 
 /// A tracker wrapper for physical memory frame
 /// Which will automatically dealloc frame for others can reuse it
-pub struct FrameTracker {
+pub(crate) struct FrameTracker {
     ppn: usize,
 }
 impl FrameTracker {
     /// Create a new FrameTracker and clear all data in frame
     /// # Arguments
     /// * frame: The physical page number
-    pub fn new(ppn: usize) -> Self {
+    pub(crate) fn new(ppn: usize) -> Self {
         let tracker = Self { ppn };
         tracker.clear();
         tracker
     }
 
     /// Get the physical page number
-    #[inline(always)]
-    pub fn ppn(&self) -> usize {
+        pub(crate) fn ppn(&self) -> usize {
         self.ppn
     }
 
     /// Get the physical memory address of the beginning of the frame
-    pub fn pa(&self) -> usize {
+    pub(crate) fn pa(&self) -> usize {
         self.ppn * configs::MEMORY_PAGE_BYTE_SIZE
     }
 
@@ -48,8 +47,7 @@ impl FrameTracker {
     /// # Returns
     /// * &mut U: return the mutable reference of U structure data
     ///   cannot greater than the page size
-    #[inline(always)]
-    pub unsafe fn as_kernel_mut<'a, 'b, U>(&'a self, offset: usize) -> &'b mut U {
+        pub(crate) unsafe fn as_kernel_mut<'a, 'b, U>(&'a self, offset: usize) -> &'b mut U {
         let mem_size = mem::size_of::<U>();
         let end = offset + mem_size;
         assert!(end <= configs::MEMORY_PAGE_BYTE_SIZE);
@@ -59,13 +57,12 @@ impl FrameTracker {
     /// Get the physical memory data from the frame as u8 array
     /// # Returns
     /// * &mut [u8; MEMORY_PAGE_SIZE]
-    #[inline(always)]
-    pub fn get_byte_array<'a, 'b>(&'a self) -> &'b mut PageBytes {
+        pub(crate) fn get_byte_array<'a, 'b>(&'a self) -> &'b mut PageBytes {
         unsafe { self.as_kernel_mut(0) }
     }
 
     /// Set all byte to zero in frame
-    pub fn clear(&self) {
+    pub(crate) fn clear(&self) {
         let array = self.get_byte_array();
         for i in array {
             *i = 0;
@@ -83,23 +80,25 @@ lazy_static! {
     /// Global physical memory frame allocator
     /// Because physical memory is unique throughout the system
     /// A globally unique allocator is required to manage it
-    pub static ref FRAME_ALLOCATOR: Arc<container::UserPromiseRefCell<BTreeSetFrameAllocator>> =
+    pub(crate) static ref FRAME_ALLOCATOR: Arc<container::UserPromiseRefCell<BTreeSetFrameAllocator>> =
         Arc::new(unsafe { container::UserPromiseRefCell::new(BTreeSetFrameAllocator::new()) });
 }
 impl FRAME_ALLOCATOR {
-    pub fn alloc(&self) -> Result<FrameTracker> {
+
+    pub(crate) fn alloc(&self) -> Result<FrameTracker> {
         let ppn = self.exclusive_access().alloc()?;
         Ok(FrameTracker::new(ppn))
     }
 
-    pub fn dealloc(&self, tracker: &mut FrameTracker) -> Result<()> {
+    pub(crate) fn dealloc(&self, tracker: &mut FrameTracker) -> Result<()> {
         self.exclusive_access().dealloc(tracker.ppn())
     }
 }
 
 /// Initializes the global physical memory frame allocator
 /// We must clear the bss section first
-pub fn init_frame_allocator() {
+#[inline(always)]
+pub(crate) fn init_frame_allocator() {
     let start = PageTable::get_ppn_with(configs::_addr_free_mem_start as usize);
     let end = PageTable::get_ppn_with(configs::_addr_free_mem_end as usize);
     debug!(

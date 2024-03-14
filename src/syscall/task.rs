@@ -13,7 +13,8 @@ use crate::task;
 /// 
 /// # Returns
 /// * Ok(0)
-pub fn sys_yield() -> Result<isize> {
+#[inline(always)]
+pub(crate) fn sys_yield() -> Result<isize> {
     task::suspend_current_and_run_other_task()?;
     Ok(0)
 }

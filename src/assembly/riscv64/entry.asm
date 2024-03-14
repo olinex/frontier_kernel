@@ -19,8 +19,10 @@ _fn_start:
     // declare a global symbol '_addr_bootstack_smaller_bound'
     .global _addr_bootstack_smaller_bound
 _addr_bootstack_smaller_bound:
-    // malloc 128 KiB space as boot stack
-    .space 4096 * 32
+    // malloc 124 KiB space as boot stack,
+    // to insert a guard page between the bootstack and BSS segment,
+    // bootstack cannot be a multiple of 8k
+    .space 4096 * 31
     // declare a global symbol '_addr_bootstack_bigger_bound'
     .global _addr_bootstack_bigger_bound
 _addr_bootstack_bigger_bound:

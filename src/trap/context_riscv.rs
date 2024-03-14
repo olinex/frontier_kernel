@@ -15,9 +15,9 @@ cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
         use riscv::register::sstatus;
 
-        const SSTATUS_UIE_POSITION: usize = 0;
+        // const SSTATUS_UIE_POSITION: usize = 0;
         const SSTATUS_SIE_POSITION: usize = 1;
-        const SSTATUS_UPIE_POSITION: usize = 4;
+        // const SSTATUS_UPIE_POSITION: usize = 4;
         const SSTATUS_SPIE_POSITION: usize = 5;
         const SSTATUS_SPP_POSITION: usize = 8;
         const SSTATUS_SUM_POSITION: usize = 18;
@@ -27,27 +27,27 @@ cfg_if! {
 
         #[repr(C)]
         #[derive(Debug)]
-        pub struct TrapContext {
+        pub(crate) struct TrapContext {
             /// WARNING: could not change the ordering of the fields in this structure,
             /// because the context instance might be initialized by assembly code in the assembly/trampoline.asm
 
             /// general purpose registers
-            pub x: [usize; 32],
+            pub(crate) x: [usize; 32],
             /// supervisor status register
-            pub sstatus: usize,
+            pub(crate) sstatus: usize,
             /// supervisor exception program counter
-            pub sepc: usize,
+            pub(crate) sepc: usize,
             /// the value of the kernel mmu token, which contain the page number of the root page table
-            pub kernel_mmu_token: usize,
+            pub(crate) kernel_mmu_token: usize,
             /// the virtual address of the kernel trap handler in the kernel space,
             /// because the trap handler will be injected as the trampoline space,
             /// which into all the space(including kernel space) at the max virutal page.
             /// it looks like unnecessary in the trap context,
             /// but we cannot remove it because task cannot load this value which is in the kernel space.
             /// we must copy it into trap context when the task is creating
-            pub trap_handler_va: usize,
+            pub(crate) trap_handler_va: usize,
             /// the virtual address of the kernel task stack in the kernel space
-            pub kernel_sp_va: usize,
+            pub(crate) kernel_sp_va: usize,
         }
 
         impl TrapContext {
@@ -55,7 +55,7 @@ cfg_if! {
             ///
             /// # Arguments
             /// * sp: the stack pointer memory address
-            pub fn set_sp(&mut self, sp: usize) {
+            pub(crate) fn set_sp(&mut self, sp: usize) {
                 self.x[2] = sp;
             }
 
@@ -64,7 +64,7 @@ cfg_if! {
             /// # Arguments
             /// * index: the index of the argument register
             /// * value: the value which will be written
-            pub fn set_arg(&mut self, index: usize, value: usize) {
+            pub(crate) fn set_arg(&mut self, index: usize, value: usize) {
                 self.x[10 + index] = value;
             }
 
@@ -72,12 +72,12 @@ cfg_if! {
             /// 
             /// # Arguments
             /// * index: the index of the argument register
-            pub fn get_arg(&self, index: usize) -> usize {
+            pub(crate) fn get_arg(&self, index: usize) -> usize {
                 self.x[10 + index]
             }
 
             /// Make supervisor exception program counter to next instruction
-            pub fn sepc_to_next_instruction(&mut self) -> usize {
+            pub(crate) fn sepc_to_next_instruction(&mut self) -> usize {
                 self.sepc += 4;
                 self.sepc
             }
@@ -87,9 +87,9 @@ cfg_if! {
             fn read_sstatus_bits() -> usize {
                 let sts = sstatus::read();
                 let mut bits = 0;
-                bits.set_bit(SSTATUS_UIE_POSITION, sts.uie());
+                // bits.set_bit(SSTATUS_UIE_POSITION, sts.ie());
                 bits.set_bit(SSTATUS_SIE_POSITION, sts.sie());
-                bits.set_bit(SSTATUS_UPIE_POSITION, sts.upie());
+                // bits.set_bit(SSTATUS_UPIE_POSITION, sts.upie());
                 bits.set_bit(SSTATUS_SPIE_POSITION, sts.spie());
                 bits.set_bit(SSTATUS_SPP_POSITION, (sts.spp() as usize) != 0);
                 bits.set_bit(SSTATUS_SUM_POSITION, sts.sum());
@@ -103,7 +103,7 @@ cfg_if! {
             /// @entry: application code entry point memory address
             /// @user_stack_top_va:  the virtual address of the user stack in the user space
             /// @kernel_stack_top_va: the virtual address of the kernel task stack in the kernel space
-            pub fn create_app_init_context(entry: usize, user_stack_top_va: usize, kernel_stack_top_va: usize) -> Self {
+            pub(crate) fn create_app_init_context(entry: usize, user_stack_top_va: usize, kernel_stack_top_va: usize) -> Self {
                 // for app context, the supervisor previous privilege mode must be user
                 let mut sts = Self::read_sstatus_bits();
                 sts.set_bit(SSTATUS_SPP_POSITION, false);

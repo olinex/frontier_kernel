@@ -35,50 +35,38 @@
 mod allocator;
 mod context;
 mod control;
-mod loader;
 mod process;
 mod switch;
 
 // use other mods
-use core::arch::global_asm;
 
 // use self mods
 use crate::prelude::*;
 
 // reexports
-pub use loader::APP_LOADER;
-pub use process::PROCESSOR;
-pub use process::TASK_CONTROLLER;
-
-cfg_if! {
-    if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
-        global_asm!(include_str!("../assembly/riscv64/link_app.asm"));
-    } else {
-        compile_error!("Unknown target_arch to include assembly ../assembly/*/link_app.asm");
-    }
-}
+pub(crate) use process::PROCESSOR;
+pub(crate) use process::TASK_CONTROLLER;
 
 /// This method allows the multitasking system to start really running,
 /// which is the engine ignition switch
-#[inline(always)]
 #[allow(dead_code)]
-pub fn run() -> ! {
+#[inline(always)]
+pub(crate) fn run() -> ! {
     process::PROCESSOR.schedule()
 }
 
 /// Suspend current task and run other runable task
-#[inline(always)]
-pub fn suspend_current_and_run_other_task() -> Result<()> {
+pub(crate) fn suspend_current_and_run_other_task() -> Result<()> {
     process::PROCESSOR.suspend_current_and_run_other_task()
 }
 
 /// Exit current task and run other runable task
-#[inline(always)]
-pub fn exit_current_and_run_other_task(exit_code: i32) -> Result<()> {
+pub(crate) fn exit_current_and_run_other_task(exit_code: i32) -> Result<()> {
     process::PROCESSOR.exit_current_and_run_other_task(exit_code)
 }
 
-pub fn init() {
+#[inline(always)]
+pub(crate) fn init() {
     control::init_pid_allocator();
     process::add_init_proc();
 }

@@ -12,6 +12,7 @@ use sbi::legacy;
 use super::{SBIApi, SBI};
 
 impl SBIApi for SBI {
+
     #[inline(always)]
     fn shutdown() -> ! {
         legacy::shutdown()

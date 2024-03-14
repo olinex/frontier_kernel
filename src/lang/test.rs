@@ -8,7 +8,7 @@
 // use self mods
 
 #[cfg(test)]
-pub fn test_runner(tests: &[&dyn Fn()]) -> ! {
+pub(crate) fn test_runner(tests: &[&dyn Fn()]) -> ! {
     use crate::sbi::*;
     info!("Running {} tests", tests.len());
     for test in tests {

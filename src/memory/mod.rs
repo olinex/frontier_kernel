@@ -2,16 +2,17 @@
 // @time:      2023/08/14
 
 // self mods
-pub mod allocator;
-pub mod area;
-pub mod frame;
-pub mod heap;
-pub mod space;
+pub(crate) mod allocator;
+pub(crate) mod area;
+pub(crate) mod buffer;
+pub(crate) mod frame;
+pub(crate) mod heap;
+pub(crate) mod space;
 
 cfg_if! {
     if #[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64")))] {
-        pub mod page_table_riscv;
-        pub use page_table_riscv as page_table;
+        pub(crate) mod page_table_riscv;
+        pub(crate) use page_table_riscv as page_table;
     }
 }
 
@@ -24,26 +25,26 @@ use crate::prelude::*;
 use page_table::PageTable;
 
 /// Alias of the page bytes array
-pub type PageBytes = [u8; configs::MEMORY_PAGE_BYTE_SIZE];
+pub(crate) type PageBytes = [u8; configs::MEMORY_PAGE_BYTE_SIZE];
 
 lazy_static! {
-    pub static ref MAX_VIRTUAL_PAGE_NUMBER: usize =
+    pub(crate) static ref MAX_VIRTUAL_PAGE_NUMBER: usize =
         PageTable::get_vpn_with(configs::MAX_VIRTUAL_ADDRESS);
     /// Trampoline will only have one page
-    pub static ref TRAMPOLINE_VIRTUAL_PAGE_NUMBER: usize =
+    pub(crate) static ref TRAMPOLINE_VIRTUAL_PAGE_NUMBER: usize =
         PageTable::get_vpn_with(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR);
     /// Trampoline's code was save in kernel's .text section
-    pub static ref TRAMPOLINE_PHYSICAL_PAGE_NUMBER: usize =
+    pub(crate) static ref TRAMPOLINE_PHYSICAL_PAGE_NUMBER: usize =
         PageTable::get_ppn_with(configs::_fn_trampoline as usize);
     /// Trap context will only have one page
-    pub static ref TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER: usize =
+    pub(crate) static ref TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER: usize =
         PageTable::get_vpn_with(configs::TRAP_CTX_VIRTUAL_BASE_ADDR);
 }
 
 bitflags! {
     #[derive(Clone, Copy)]
     /// The abstract page table entry flags
-    pub struct PageTableFlags: u8 {
+    pub(crate) struct PageTableFlags: u8 {
         const EMPTY = 0;
         const R = 1 << 1;
         const W = 1 << 2;
@@ -56,7 +57,7 @@ bitflags! {
     }
 }
 
-pub trait PageTableTr {
+pub(crate) trait PageTableTr {
     /// Calculate the physical page number by the physical address
     ///
     /// # Arguments
@@ -179,7 +180,7 @@ pub trait PageTableTr {
     fn get_byte_array<'a, 'b>(&'a self, vpn: usize) -> Result<&'b mut PageBytes>;
 }
 
-pub fn print_memory_info() {
+pub(crate) fn print_memory_info() {
     debug!(
         "[{:#018x}, {:#018x}): Text section physical memory address range",
         configs::_addr_text_start as usize,
@@ -194,6 +195,11 @@ pub fn print_memory_info() {
         "[{:#018x}, {:#018x}): Read write data section physical memory address range",
         configs::_addr_data_start as usize,
         configs::_addr_data_end as usize
+    );
+    debug!(
+        "[{:#018x}, {:#018x}): Bootstack section physical memory address range",
+        configs::_addr_bootstack_start as usize,
+        configs::_addr_bootstack_end as usize
     );
     debug!(
         "[{:#018x}, {:#018x}): BSS section physical memory address range",
@@ -233,14 +239,8 @@ pub fn print_memory_info() {
     );
 }
 
-/// Initially make bss section to zero is very import when kernel was initializing
-pub fn clear_bss() {
-    // force set all byte to zero
-    (configs::_addr_bss_start as usize..configs::_addr_bss_end as usize)
-        .for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
-}
-
-pub fn init() {
+#[inline(always)]
+pub(crate) fn init() {
     print_memory_info();
     heap::init_heap();
     frame::init_frame_allocator();

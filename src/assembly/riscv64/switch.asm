@@ -8,7 +8,6 @@
 .endm
     .section .text
     .global _fn_switch_task
-    .global _fn_run_first_task
     .align 4
 
 # _fn_switch_task(

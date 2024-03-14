@@ -15,7 +15,7 @@ use crate::{configs, prelude::*};
 
 /// The type of the area
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum AreaMapping {
+pub(crate) enum AreaMapping {
     /// Area will only map vpn to ppn which equals vpn,
     /// and will not allocate frame
     Identical,
@@ -49,36 +49,30 @@ impl PageRangeTracker {
     }
 
     /// The byte size of current page range
-    #[inline(always)]
-    pub fn byte_size(&self) -> usize {
+        pub(crate) fn byte_size(&self) -> usize {
         (self.end_vpn - self.start_vpn) * configs::MEMORY_PAGE_BYTE_SIZE
     }
 
     /// Get the start page number of the page range
-    #[inline(always)]
-    pub fn start_vpn(&self) -> usize {
+        pub(crate) fn start_vpn(&self) -> usize {
         self.start_vpn
     }
 
     /// Get the end page number of the page range
-    #[inline(always)]
-    pub fn end_vpn(&self) -> usize {
+        pub(crate) fn end_vpn(&self) -> usize {
         self.end_vpn
     }
 
-    #[inline(always)]
-    pub fn page_range(&self) -> core::ops::Range<usize> {
+        pub(crate) fn page_range(&self) -> core::ops::Range<usize> {
         self.start_vpn..self.end_vpn
     }
 
     /// Check the vpn is one the page number of the page range
-    #[inline(always)]
-    pub fn contain(&self, vpn: usize) -> bool {
+        pub(crate) fn contain(&self, vpn: usize) -> bool {
         self.start_vpn <= vpn && vpn < self.end_vpn
     }
 
-    #[inline(always)]
-    pub fn check(&self, vpn: usize) -> Result<()> {
+        pub(crate) fn check(&self, vpn: usize) -> Result<()> {
         if self.contain(vpn) {
             Ok(())
         } else {
@@ -101,7 +95,7 @@ impl Drop for PageRangeTracker {
 
 /// A area is a virtual abstraction class of contiguous virtual memory pages,
 /// and the internal memory pages have the same permissions and mappings
-pub struct Area {
+pub(crate) struct Area {
     /// Area permission flags
     flags: PageTableFlags,
     /// Area mapping type
@@ -125,7 +119,7 @@ impl Area {
     /// # Returns
     /// * Ok(Area)
     /// * Err(KernelError::AreaAllocationFailed(start_vpn, end_vpn))
-    pub fn new(
+    pub(crate) fn new(
         start_vpn: usize,
         end_vpn: usize,
         flags: PageTableFlags,
@@ -156,7 +150,7 @@ impl Area {
     /// # Returns
     /// * Ok(Area)
     /// * Err(KernelError::AreaAllocationFailed(start_vpn, end_vpn))
-    pub fn from_another(
+    pub(crate) fn from_another(
         another: &Self,
         allocator: &Arc<LinkedListPageRangeAllocator>,
         page_table: &Arc<UserPromiseRefCell<PageTable>>,
@@ -181,8 +175,7 @@ impl Area {
     ///
     /// # Returns
     /// * (start_vpn, end_vpn)
-    #[inline(always)]
-    pub fn range(&self) -> (usize, usize) {
+        pub(crate) fn range(&self) -> (usize, usize) {
         (
             self.page_range_tracker.start_vpn(),
             self.page_range_tracker.end_vpn(),
@@ -266,7 +259,7 @@ impl Area {
     /// # Returns
     /// * Ok(U)
     /// * Err(KernelError::VPNNotMapped(vpn))
-    pub unsafe fn as_kernel_mut<U>(&self, vpn: usize, offset: usize) -> Result<&mut U> {
+    pub(crate) unsafe fn as_kernel_mut<U>(&self, vpn: usize, offset: usize) -> Result<&mut U> {
         let page_table = self.page_table.access();
         let tracker = page_table.get_tracker_with(vpn)?;
         Ok(tracker.as_kernel_mut::<U>(offset))
@@ -279,7 +272,7 @@ impl Area {
     /// # Returns
     /// * Ok(&[u8; {const}])
     /// * Err(KernelError::VPNNotMapped(vpn))
-    pub fn get_byte_array<'a, 'b>(&'a self, vpn: usize) -> Result<&'b mut PageBytes> {
+    pub(crate) fn get_byte_array<'a, 'b>(&'a self, vpn: usize) -> Result<&'b mut PageBytes> {
         let page_table = self.page_table.access();
         let tracker = page_table.get_tracker_with(vpn)?;
         Ok(tracker.get_byte_array())
@@ -294,7 +287,6 @@ impl Area {
     /// # Returns
     /// * Ok(())
     /// * Err(KernelError::VPNNotMapped(vpn))
-    #[inline]
     fn write_page(&self, vpn: usize, offset: usize, data: &[u8]) -> Result<()> {
         assert_eq!(self.area_mapping, AreaMapping::Framed);
         let dst = self.get_byte_array(vpn)?;
@@ -306,7 +298,7 @@ impl Area {
     /// # Arguments
     /// * offset: The byte offset from the beginning of the first virtual page
     /// * data: The byte data to be written
-    pub fn write_multi_pages(&mut self, offset: usize, data: &[u8]) -> Result<()> {
+    pub(crate) fn write_multi_pages(&mut self, offset: usize, data: &[u8]) -> Result<()> {
         let length = data.len();
         let linear_end = length + offset;
         assert!(linear_end <= self.page_range_tracker.byte_size());

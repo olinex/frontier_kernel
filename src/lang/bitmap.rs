@@ -15,7 +15,7 @@ const BLOCK_BIT_SIZE: usize = 8;
 /// BitMap
 /// Save the bits as a vector of u8.
 /// You can set or get each bit value as boolean.
-pub struct BitMap {
+pub(crate) struct BitMap {
     length: usize,
     map: container::UserPromiseRefCell<Vec<u8>>,
 }
@@ -23,29 +23,26 @@ impl BitMap {
     /// Get the Quotient of the index which will be divided by 8
     /// # Arguments
     /// * index: The index of the bit, starting from 0
-    #[inline(always)]
-    pub fn offset(index: usize) -> usize {
+    pub(crate) fn offset(index: usize) -> usize {
         index / BLOCK_BIT_SIZE
     }
 
     /// Get the Remainder of the index which will be divided by 8
     /// # Arguments
     /// * index: The index of the bit, starting from 0
-    #[inline(always)]
-    pub fn limit(index: usize) -> usize {
+    pub(crate) fn limit(index: usize) -> usize {
         index % BLOCK_BIT_SIZE
     }
 
     /// Get the length of the vector of u8
-    #[inline(always)]
-    pub fn block_size(&self) -> usize {
+    pub(crate) fn block_size(&self) -> usize {
         self.map.access().len()
     }
 
     /// Create a new BitMap according the length
     /// # Arguments
     /// * length: The count of the bits
-    pub fn new(length: usize) -> Self {
+    pub(crate) fn new(length: usize) -> Self {
         let map: Vec<u8> = vec![0; (length + (BLOCK_BIT_SIZE - 1)) / 8];
         Self {
             length,
@@ -60,7 +57,7 @@ impl BitMap {
     /// # Return
     /// * Ok(boolean): get the bit boolean value
     /// * Err(KernelError::IndexOutOfRange): index out of range
-    pub fn get_bit(&self, index: usize) -> Result<bool> {
+    pub(crate) fn get_bit(&self, index: usize) -> Result<bool> {
         match (
             index < self.length,
             self.map.access().get(Self::offset(index)),
@@ -87,7 +84,7 @@ impl BitMap {
     ///
     /// # Pnaic
     /// * When you change the bit value asynchronously
-    pub fn set_bit(&self, index: usize, value: bool) -> Result<bool> {
+    pub(crate) fn set_bit(&self, index: usize, value: bool) -> Result<bool> {
         let per_value = self.get_bit(index)?;
         if per_value == value {
             Ok(false)

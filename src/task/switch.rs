@@ -20,7 +20,7 @@ cfg_if! {
 extern "C" {
     /// Assembly function whitch will save current task's ra/sp/callee saved registers.
     /// For switching to other task, we must restore the registers by the task we want to run in the next time.
-    pub fn _fn_switch_task(
+    pub(crate) fn _fn_switch_task(
         current_task_ctx_ptr: *mut TaskContext,
         next_task_ctx_ptr: *const TaskContext,
     );

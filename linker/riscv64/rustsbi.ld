@@ -17,11 +17,11 @@ SECTIONS
         PROVIDE(_addr_text_start = .);
         /* sub section .text.entry will be the first part of .text section */
         *(.text.entry)
-        . = ALIGN(4k);
+        . = ALIGN(8k);
         /* sub section .text.trampoline */
         PROVIDE(_fn_trampoline = .);
         *(.text.trampoline)
-        . = ALIGN(4k);
+        . = ALIGN(8k);
         /* other kernel code section .text */
         *(.text .text.*)
         PROVIDE(_addr_text_end = .);
@@ -29,7 +29,7 @@ SECTIONS
 
     /* declare inited read only data section */
     .rodata : {
-        . = ALIGN(4k);
+        . = ALIGN(8k);
         PROVIDE(_addr_rodata_start = .);
         *(.rodata .rodata.*)
         PROVIDE(_addr_rodata_end = .);
@@ -37,7 +37,7 @@ SECTIONS
 
     /* declare inited read write data section */
     .data : {
-        . = ALIGN(4k);
+        . = ALIGN(8k);
         PROVIDE(_addr_data_start = .);
         *(.data .data.*)
         PROVIDE(_addr_data_end = .);
@@ -45,11 +45,14 @@ SECTIONS
 
     /* declare uninit data section */
     .bss : {
-        . = ALIGN(4k);
+        . = ALIGN(8k);
+        /* sub section .bss.bootstack was defined in src/assemble/entry.asm  */
+        PROVIDE(_addr_bootstack_start = .);
+        *(.bss.bootstack)
+        PROVIDE(_addr_bootstack_end = .);
+        . = ALIGN(8k);
         PROVIDE(_addr_bss_start = .);
         *(.bss .bss.*)
-        /* sub section .bss.bootstack was defined in src/assemble/entry.asm  */
-        *(.bss.bootstack)
         PROVIDE(_addr_bss_end = .);
     } > RAM
 

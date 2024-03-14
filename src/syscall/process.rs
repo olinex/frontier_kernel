@@ -5,22 +5,27 @@
 
 // use other mods
 
+use frontier_fs::OpenFlags;
+
 // use self mods
+use crate::fs::inode::ROOT_INODE;
 use crate::prelude::*;
-use crate::task::{exit_current_and_run_other_task, APP_LOADER, PROCESSOR, TASK_CONTROLLER};
+use crate::task::{exit_current_and_run_other_task, PROCESSOR, TASK_CONTROLLER};
 
 /// Task exits and submit an exit code
 ///
 /// # Arguments
 /// * exit_code
-pub fn sys_exit(exit_code: i32) -> ! {
+#[inline(always)]
+pub(crate) fn sys_exit(exit_code: i32) -> ! {
     debug!("Application exited with code {}", exit_code);
     exit_current_and_run_other_task(exit_code).unwrap();
     unreachable!();
 }
 
 /// Get the current task's process unique id
-pub fn sys_get_pid() -> Result<isize> {
+#[inline(always)]
+pub(crate) fn sys_get_pid() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
     Ok(current_task.pid() as isize)
 }
@@ -35,15 +40,15 @@ pub fn sys_get_pid() -> Result<isize> {
 ///
 /// # Returns
 /// * Ok(0 or new process pid)
-pub fn sys_fork() -> Result<isize> {
+#[inline(always)]
+pub(crate) fn sys_fork() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
     let new_task = current_task.fork()?;
-    {
-        let new_inner = new_task.inner_access();
-        let trap_ctx = new_inner.trap_ctx()?;
-        // for child process, fork returns 0
-        trap_ctx.set_arg(0, 0);
-    }
+    let new_inner = new_task.inner_access();
+    let trap_ctx = new_inner.trap_ctx()?;
+    // for child process, fork returns 0
+    trap_ctx.set_arg(0, 0);
+    drop(new_inner);
     let pid = new_task.pid();
     TASK_CONTROLLER.add_task(new_task);
     debug!(
@@ -62,20 +67,28 @@ pub fn sys_fork() -> Result<isize> {
 /// or this function will not return back.
 ///
 /// # Arguments
-/// * ident: the identification of the task which should be run in the current process
+/// * path: the path of the task which should be run in the current process
 ///
 /// # Returns
 /// * Ok(0): task execute success
 /// * Ok(-1): task does not exist
-pub fn sys_exec(ident: *const u8) -> Result<isize> {
+#[inline(always)]
+pub(crate) fn sys_exec(path: *const u8) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let data = {
-        let inner = task.inner_access();
-        let current_space = inner.space();
-        let name = current_space.translated_string(ident)?;
-        APP_LOADER.get(name.as_str())?
-    };
-    task.exec(data)?;
+    let inner = task.inner_access();
+    let current_space = inner.space();
+    let path = current_space.translated_string(path)?;
+    let file = ROOT_INODE.find(&path, OpenFlags::READ)?;
+    let data = file.read_all()?;
+    debug!(
+        "Task {}({} bytes) was loaded successfully",
+        path,
+        data.len()
+    );
+    drop(file);
+    drop(path);
+    drop(inner);
+    task.exec(&data)?;
     Ok(0)
 }
 
@@ -90,7 +103,8 @@ pub fn sys_exec(ident: *const u8) -> Result<isize> {
 /// # Returns
 /// * Ok(-1): task does not exist
 /// * Ok(-2): task is still alive
-pub fn sys_wait_pid(pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
+#[inline(always)]
+pub(crate) fn sys_wait_pid(pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
     task.wait(pid, exit_code_ptr)
 }

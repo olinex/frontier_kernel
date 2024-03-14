@@ -18,25 +18,29 @@ use crate::{configs, task};
 
 // enable the time interrput and the first timer trigger
 // when system was trap with timer interrupt, it will set other trigger by itself
-pub fn init_timer_interrupt() {
+#[inline(always)]
+pub(crate) fn init_timer_interrupt() {
     unsafe { SBI::enable_timer_interrupt() };
     timer::set_next_trigger();
 }
 
 /// Set `trap_from_kernel` function as the trap handler entry point
 /// This function just panic so that we force disable the ability of the trap
-pub fn set_kernel_trap_entry() {
+#[inline(always)]
+pub(crate) fn set_kernel_trap_entry() {
     unsafe { SBI::set_direct_trap_vector(trap_from_kernel as usize) }
 }
 
 /// Set trampoline code as the trap handler entry point which code is written in the file [assembly/trampoline.asm].
-pub fn set_user_trap_entry() {
+#[inline(always)]
+pub(crate) fn set_user_trap_entry() {
     unsafe { SBI::set_direct_trap_vector(configs::TRAMPOLINE_VIRTUAL_BASE_ADDR) }
 }
 
 /// A help function for trap handler which force disable the trap.
 #[no_mangle]
-pub fn trap_from_kernel() -> ! {
+#[inline(always)]
+pub(crate) fn trap_from_kernel() -> ! {
     panic!("a trap from kernel!");
 }
 
@@ -51,7 +55,8 @@ cfg_if! {
         // 2 call trap_handler and pass user stack
 
         #[no_mangle]
-        pub fn trap_return() -> ! {
+        #[inline(always)]
+        pub(crate) fn trap_return() -> ! {
             set_user_trap_entry();
             let trap_ctx_va = configs::TRAP_CTX_VIRTUAL_BASE_ADDR;
             let task = task::PROCESSOR.current_task().unwrap();
@@ -104,8 +109,6 @@ cfg_if! {
                             let inner = task.inner_access();
                             let ctx = inner.trap_ctx().unwrap();
                             ctx.set_arg(0, code as usize);
-                            drop(inner);
-                            drop(task);
                         },
                         Err(error) => {
                             error!("Syscall Fault cause: {}", error);
@@ -149,7 +152,8 @@ cfg_if! {
         }
 
         #[no_mangle]
-        pub fn trap_handler() -> ! {
+        #[inline(always)]
+        pub(crate) fn trap_handler() -> ! {
             // now we cannot handle trap from S mode to S mode
             // so we just make it panic here
             set_kernel_trap_entry();

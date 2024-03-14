@@ -7,7 +7,7 @@
 
 // use self mods
 
-pub trait SBIApi {
+pub(crate) trait SBIApi {
     /// Shutdown the kernel
     fn shutdown() -> !;
 
@@ -56,11 +56,11 @@ pub trait SBIApi {
     unsafe fn sync_tlb();
 }
 
-pub struct SBI;
+pub(crate) struct SBI;
 
 cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
-        pub mod impl_riscv;
+        pub(crate) mod impl_riscv;
     } else {
         compile_error!("Unknown target_arch to implying sbi")
     }

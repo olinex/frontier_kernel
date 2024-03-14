@@ -6,12 +6,13 @@
 // use other mods
 use alloc::string::String;
 use enum_group::EnumGroup;
+use frontier_fs::FFSError;
 use thiserror_no_std::Error;
 
 // use self mods
 
 #[derive(Error, EnumGroup, Debug)]
-pub enum KernelError {
+pub(crate) enum KernelError {
     #[groups(syscall)]
     #[error("[kernel] Invalid syscall id: {0}")]
     InvaidSyscallId(usize),
@@ -93,20 +94,40 @@ pub enum KernelError {
     PidNotDeallocable(usize),
 
     #[groups(process)]
-    #[error("[kernel] Process {0} already exists")]
-    ProcessAlreadyExists(String),
-
-    #[groups(process)]
-    #[error("[kernel] Process {0} dose not exists")]
-    ProcessDoesNotExists(String),
-
-    #[groups(process)]
     #[error("[kernel] Process have not task")]
     ProcessHaveNotTask,
 
     #[groups(fs)]
     #[error("[kernel] Invalid open flags {0:#x}")]
     InvalidOpenFlags(u32),
+
+    #[groups(fs)]
+    #[error("[kernel] File descriptor exhausted")]
+    FileDescriptorExhausted,
+
+    #[groups(fs)]
+    #[error("[kernel] File descriptor does not exists")]
+    FileDescriptorDoesNotExist(usize),
+
+    #[groups(fs)]
+    #[error("[kernel] File {0} does not exists")]
+    FileDoesNotExists(String),
+
+    #[groups(vfs)]
+    #[error("Inode {0} must be readable")]
+    FileMustBeReadable(u32),
+
+    #[groups(vfs)]
+    #[error("Inode {0} must be writable")]
+    FileMustBeWritable(u32),
+
+    #[groups(vfs)]
+    #[error("Inode {0} must be executable")]
+    FileMustBeExecutable(u32),
+
+    #[groups(others, fs)]
+    #[error("[kernel] File system error: {0}")]
+    FileSystemError(#[from] FFSError),
 
     #[groups(others, parse, elf)]
     #[error("[kernel] Parse elf error: {0}")]
@@ -121,4 +142,4 @@ pub enum KernelError {
     ParseUtf8Error(#[from] alloc::str::Utf8Error),
 }
 
-pub type Result<T> = core::result::Result<T, KernelError>;
+pub(crate) type Result<T> = core::result::Result<T, KernelError>;

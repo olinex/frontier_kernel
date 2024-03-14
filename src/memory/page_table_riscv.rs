@@ -42,7 +42,7 @@ const MMU_PPN_RANGE: Range<usize> = 0..44;
 const MMU_ASID_RANGE: Range<usize> = 44..60;
 const MMU_MODE_RANGE: Range<usize> = 60..64;
 
-pub const MAX_TASK_ID: usize = (1 << (MMU_ASID_RANGE.end - MMU_ASID_RANGE.start)) - 1;
+pub(crate) const MAX_TASK_ID: usize = (1 << (MMU_ASID_RANGE.end - MMU_ASID_RANGE.start)) - 1;
 
 cfg_if! {
     if #[cfg(all(feature = "mmu_sv39", target_arch = "riscv64"))] {
@@ -71,7 +71,7 @@ bitflags! {
     /// The flags of the page table entry.
     /// This structure is only used in riscv
     #[derive(PartialEq, Eq)]
-    pub struct PTEFlags: u8 {
+    pub(crate) struct PTEFlags: u8 {
         /// Is valid
         const V = 1 << 0;
         /// Is readable
@@ -94,7 +94,7 @@ bitflags! {
 /// The entry of the page table which records the relationship of the vpn and the ppn
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct PageTableEntry {
+pub(crate) struct PageTableEntry {
     bits: usize,
 }
 impl PageTableEntry {
@@ -103,7 +103,7 @@ impl PageTableEntry {
     /// # Arguments
     /// * ppn: the physical page number which the PTE refers to
     /// * flags: permission and some other flag bits
-    pub fn new(ppn: usize, flags: PTEFlags) -> Self {
+    pub(crate) fn new(ppn: usize, flags: PTEFlags) -> Self {
         let mut bits = 0;
         bits.set_bits(PTE_PPN_RANGE, ppn)
             .set_bits(PTE_FLAGS_RANGE, flags.bits() as usize);
@@ -111,26 +111,22 @@ impl PageTableEntry {
     }
 
     /// Create a new empty page table which is invalid
-    #[inline(always)]
-    pub fn empty() -> Self {
+        pub(crate) fn empty() -> Self {
         PageTableEntry { bits: 0 }
     }
 
     /// Get the physical page number as usize
-    #[inline(always)]
-    pub fn ppn(&self) -> usize {
+        pub(crate) fn ppn(&self) -> usize {
         self.bits.get_bits(PTE_PPN_RANGE)
     }
 
     /// Get the PTE flags
-    #[inline(always)]
-    pub fn flags(&self) -> PTEFlags {
+        pub(crate) fn flags(&self) -> PTEFlags {
         PTEFlags::from_bits(self.bits as u8).unwrap()
     }
 
     /// Check current PTE validation
-    #[inline(always)]
-    pub fn is_valid(&self) -> bool {
+        pub(crate) fn is_valid(&self) -> bool {
         self.flags().contains(PTEFlags::V)
     }
 }
@@ -139,7 +135,7 @@ impl PageTableEntry {
 type PTEArray = [PageTableEntry; PTE_COUNT];
 
 /// The page mapper which contain the PTE
-pub struct PageMapper {
+pub(crate) struct PageMapper {
     /// The physical page number of the parent page mapper,
     /// Which maybe None when page mapper is the root mapper
     parent: Option<usize>,
@@ -165,26 +161,22 @@ impl PageMapper {
     }
 
     /// Get the array of the PTE in the page mapper
-    #[inline(always)]
-    fn get_pte_array(&self) -> &mut PTEArray {
+        fn get_pte_array(&self) -> &mut PTEArray {
         unsafe { self.tracker.as_kernel_mut(0) }
     }
 
     /// Get the physcial page number of the page mapper
-    #[inline(always)]
-    fn ppn(&self) -> usize {
+        fn ppn(&self) -> usize {
         self.tracker.ppn()
     }
 
     /// Check if the page mapper have no valid PTE
-    #[inline(always)]
-    fn is_empty(&self) -> bool {
+        fn is_empty(&self) -> bool {
         *self.count.access() == 0
     }
 
     /// Check if teh pge mapper's PTE are all valid
-    #[inline(always)]
-    fn is_full(&self) -> bool {
+        fn is_full(&self) -> bool {
         *self.count.access() as usize == PTE_COUNT
     }
 
@@ -193,8 +185,7 @@ impl PageMapper {
     /// # Returns
     /// * Ok(usize): return the increased count
     /// * Err(KernelError::AllocFullPageMapper(ppn))
-    #[inline(always)]
-    fn incr(&self) -> Result<usize> {
+        fn incr(&self) -> Result<usize> {
         if self.is_full() {
             Err(KernelError::AllocFullPageMapper(self.ppn()))
         } else {
@@ -208,8 +199,7 @@ impl PageMapper {
     /// # Returns
     /// * Ok(usize): return the decreased count
     /// * Err(KernelError::DeallocEmptyPageMapper(ppn))
-    #[inline(always)]
-    fn decr(&self) -> Result<usize> {
+        fn decr(&self) -> Result<usize> {
         if self.is_empty() {
             Err(KernelError::DeallocEmptyPageMapper(self.ppn()))
         } else {
@@ -220,7 +210,7 @@ impl PageMapper {
 }
 
 /// The page table abstract struct
-pub struct PageTable {
+pub(crate) struct PageTable {
     /// The address space id of the page table
     asid: usize,
     /// The root page mapper of the current page table
@@ -254,26 +244,22 @@ impl PageTable {
 }
 impl PageTableTr for PageTable {
     /// Help function to get physical page number with physical address
-    #[inline(always)]
-    fn get_ppn_with(pa: usize) -> usize {
+        fn get_ppn_with(pa: usize) -> usize {
         pa.get_bits(PA_PN_RANGE)
     }
 
     /// Help function to get virtual page number with virtual address
-    #[inline(always)]
-    fn get_vpn_with(va: usize) -> usize {
+        fn get_vpn_with(va: usize) -> usize {
         va.get_bits(VA_PN_RANGE)
     }
 
     /// Help function to get address offset with physical address
-    #[inline(always)]
-    fn get_pa_offset(pa: usize) -> usize {
+        fn get_pa_offset(pa: usize) -> usize {
         pa.get_bits(OFFSET_RANGE)
     }
 
     /// Help function get get address offset with virtual address
-    #[inline(always)]
-    fn get_va_offset(va: usize) -> usize {
+        fn get_va_offset(va: usize) -> usize {
         Self::get_pa_offset(va)
     }
 
@@ -313,20 +299,17 @@ impl PageTableTr for PageTable {
     }
 
     /// Get the asid of the page table
-    #[inline(always)]
-    fn asid(&self) -> usize {
+        fn asid(&self) -> usize {
         self.asid
     }
 
     /// Get the physical page number of the page table's root page mapper
-    #[inline(always)]
-    fn ppn(&self) -> usize {
+        fn ppn(&self) -> usize {
         self.root.ppn()
     }
 
     /// Get the memory manger unit token value of the page table
-    #[inline(always)]
-    fn mmu_token(&self) -> usize {
+        fn mmu_token(&self) -> usize {
         let mut token = 0;
         token
             .set_bits(MMU_MODE_RANGE, MMU_MODE as usize)

@@ -10,7 +10,7 @@ use log::{LevelFilter, Metadata, Record};
 use crate::configs;
 use crate::println;
 
-pub struct KernelLogger;
+pub(crate) struct KernelLogger;
 
 impl log::Log for KernelLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
@@ -28,7 +28,8 @@ impl log::Log for KernelLogger {
 
 static LOGGER: KernelLogger = KernelLogger;
 
-pub fn init() {
+#[inline(always)]
+pub(crate) fn init() {
     if let Err(error) = log::set_logger(&LOGGER) {
         panic!("Could not set logger cause by {}", error);
     }

@@ -18,13 +18,14 @@ static mut KERNEL_HEAP_SPACE: [u8; configs::KERNEL_HEAP_BYTE_SIZE] =
 static HEAP_ALLOCATOR: allocator::LockedHeap<32> = allocator::LockedHeap::<32>::empty();
 
 #[alloc_error_handler]
-pub fn handle_alloc_error(layout: Layout) -> ! {
+pub(crate) fn handle_alloc_error(layout: Layout) -> ! {
     panic!("Heap allocation error, layout = {:?}", layout);
 }
 
 // Initialize the heap memory allocator
 // The space of the heap was allocated in the bss section
-pub fn init_heap() {
+#[inline(always)]
+pub(crate) fn init_heap() {
     let start_addr = unsafe { KERNEL_HEAP_SPACE.as_ptr() as usize };
     let end_addr = start_addr + configs::KERNEL_HEAP_BYTE_SIZE;
     debug!("[{:#012x}, {:#012x}): Heap physical memory address initialized", start_addr, end_addr);

@@ -11,13 +11,16 @@ use alloc::vec::Vec;
 use core::cell::{Ref, RefMut};
 use core::str::FromStr;
 use enum_group::EnumGroup;
+use frontier_fs::OpenFlags;
 
 // use self mods
 use super::allocator::BTreePidAllocator;
 use super::context::TaskContext;
-use super::loader::APP_LOADER;
 use super::process::INITPROC;
 use crate::configs;
+use crate::fs::inode::ROOT_INODE;
+use crate::fs::stdio::{STDIN, STDOUT};
+use crate::fs::File;
 use crate::lang::container::UserPromiseRefCell;
 use crate::memory::page_table::PageTable;
 use crate::memory::space::{Space, KERNEL_SPACE};
@@ -26,7 +29,7 @@ use crate::prelude::*;
 use crate::trap::context::TrapContext;
 
 /// A tracker for process id
-pub struct PidTracker {
+pub(crate) struct PidTracker {
     pid: usize,
 }
 impl PidTracker {
@@ -47,7 +50,6 @@ impl PidTracker {
     }
 
     /// Get the tracker's process id
-    #[inline(always)]
     fn pid(&self) -> usize {
         self.pid
     }
@@ -90,7 +92,7 @@ impl PID_ALLOCATOR {
 
 /// The execution status of the task
 #[derive(EnumGroup, Debug, Copy, Clone, PartialEq)]
-pub enum TaskStatus {
+pub(crate) enum TaskStatus {
     Ready,
     Running,
     Suspended,
@@ -98,7 +100,7 @@ pub enum TaskStatus {
 }
 
 /// The meta information of the task when in supervisor mode context
-pub struct TaskMetaInner {
+pub(crate) struct TaskMetaInner {
     /// The running status of the task
     status: TaskStatus,
     /// The virtual memory address space of the task
@@ -111,6 +113,8 @@ pub struct TaskMetaInner {
     childrens: Vec<Arc<TaskMeta>>,
     /// Store the exit code which define when task exiting
     exit_code: usize,
+    /// The file table of tasks which is using by task
+    fd_table: Vec<Option<Arc<dyn File>>>,
 }
 impl TaskMetaInner {
     /// Help function for helping the trap context from task's virtual address space
@@ -123,33 +127,68 @@ impl TaskMetaInner {
         Ok(trap_ctx)
     }
 
-    #[inline(always)]
     fn status(&self) -> TaskStatus {
         self.status
     }
 
-    #[inline(always)]
-    pub fn space(&self) -> &Space {
+    pub(crate) fn space(&self) -> &Space {
         &self.space
     }
 
-    #[inline(always)]
-    pub fn trap_ctx(&self) -> Result<&mut TrapContext> {
+    pub(crate) fn trap_ctx(&self) -> Result<&mut TrapContext> {
         Self::get_trap_ctx(&self.space)
     }
 
-    #[inline(always)]
     fn get_exit_code(&self) -> usize {
         self.exit_code
     }
 
-    #[inline(always)]
     fn set_exit_code(&mut self, exit_code: usize) {
         self.exit_code = exit_code;
     }
+
+    pub(crate) fn allc_fd(&mut self, file: Arc<dyn File>) -> Result<usize> {
+        for (fd, wrapper) in self.fd_table.iter_mut().enumerate() {
+            if wrapper.is_none() {
+                *wrapper = Some(file.clone());
+                return Ok(fd);
+            }
+        }
+        let fd = self.fd_table.len();
+        if fd >= configs::MAX_FD_COUNT {
+            Err(KernelError::FileDescriptorExhausted)
+        } else {
+            self.fd_table.push(Some(file));
+            Ok(fd)
+        }
+    }
+
+    pub(crate) fn dealloc_fd(&mut self, fd: usize) -> Result<()> {
+        let wrapper = self
+            .fd_table
+            .get_mut(fd)
+            .ok_or(KernelError::InvalidFileDescriptor(fd))?;
+        if wrapper.is_some() {
+            wrapper.take();
+        }
+        if fd == self.fd_table.len() - 1 {
+            loop {
+                if self.fd_table.get(self.fd_table.len() - 1).is_none() {
+                    self.fd_table.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn get_file(&self, fd: usize) -> Option<&Arc<dyn File>> {
+        self.fd_table.get(fd).and_then(|wrapper| wrapper.as_ref())
+    }
 }
 
-pub struct TaskMeta {
+pub(crate) struct TaskMeta {
     /// The name of the task
     name: String,
     /// Process id which the task is belongs to
@@ -176,10 +215,6 @@ impl TaskMeta {
         let pid = tracker.pid();
         let kernel_stack_top_va = tracker.kernel_stack_top_va();
         let (space, user_stack_top_va, entry_point) = KERNEL_SPACE::new_user_from_elf(pid, data)?;
-        debug!(
-            "load task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}, entry_point: {:#x}",
-            name, pid, user_stack_top_va, kernel_stack_top_va, entry_point
-        );
         let trap_ctx_ppn = space.trap_ctx_ppn()?;
         let trap_ctx = TaskMetaInner::get_trap_ctx(&space)?;
         *trap_ctx = TrapContext::create_app_init_context(
@@ -196,7 +231,16 @@ impl TaskMeta {
             parent: None,
             childrens: vec![],
             exit_code: 0,
+            fd_table: vec![
+                Some(Arc::clone(&STDIN)),
+                Some(Arc::clone(&STDOUT)),
+                Some(Arc::clone(&STDOUT)),
+            ],
         };
+        debug!(
+            "load task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}, entry_point: {:#x}",
+            name, pid, user_stack_top_va, kernel_stack_top_va, entry_point
+        );
         let child = Arc::new(Self {
             name,
             tracker,
@@ -222,7 +266,7 @@ impl TaskMeta {
     ///
     /// # Return
     /// Ok(Arc<TaskMeta>)
-    pub fn fork(self: &Arc<Self>) -> Result<Arc<Self>> {
+    pub(crate) fn fork(self: &Arc<Self>) -> Result<Arc<Self>> {
         let name = self.name().clone();
         let tracker = PID_ALLOCATOR.alloc()?;
         let pid = tracker.pid();
@@ -239,7 +283,16 @@ impl TaskMeta {
             parent: None,
             childrens: vec![],
             exit_code: 0,
+            fd_table: vec![
+                Some(Arc::clone(&STDIN)),
+                Some(Arc::clone(&STDOUT)),
+                Some(Arc::clone(&STDOUT)),
+            ],
         };
+        debug!(
+            "fork task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}",
+            name, pid, user_stack_top_va, kernel_stack_top_va
+        );
         let child = Arc::new(Self {
             name,
             tracker,
@@ -264,7 +317,7 @@ impl TaskMeta {
     ///
     /// # Arguments
     /// * data: the code to execute
-    pub fn exec(&self, data: &[u8]) -> Result<()> {
+    pub(crate) fn exec(&self, data: &[u8]) -> Result<()> {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let pid = self.pid();
         let kernel_stack_top_va = self.tracker.kernel_stack_top_va();
@@ -298,7 +351,7 @@ impl TaskMeta {
     /// * Ok(-1): child process not exists
     /// * Ok(-2): child process have not yet exited
     /// * Ok(other positive integer): the exit code of the child process
-    pub fn wait(&self, pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
+    pub(crate) fn wait(&self, pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
         let mut inner = self.inner_exclusive_access();
         for (index, child) in inner.childrens.iter().enumerate() {
             match (child.is_zombie(), pid as usize == child.pid(), pid) {
@@ -322,56 +375,57 @@ impl TaskMeta {
     }
 
     /// Create a new initial process
-    pub fn new_init_proc() -> Result<Arc<Self>> {
-        let data = APP_LOADER.get(configs::INIT_PROCESS_NAME)?;
-        let name = String::from_str(configs::INIT_PROCESS_NAME)?;
-        Ok(Self::new(name, data, None)?)
+    pub(crate) fn new_init_proc() -> Result<Arc<Self>> {
+        let file = ROOT_INODE.find(configs::INIT_PROCESS_PATH, OpenFlags::READ)?;
+        let data = file.read_all()?;
+        let name = String::from_str(configs::INIT_PROCESS_PATH)?;
+        Ok(Self::new(name, &data, None)?)
     }
 
     /// Get the name of the process
-    pub fn name(&self) -> &String {
+    pub(crate) fn name(&self) -> &String {
         &self.name
     }
 
     /// Get the inmutable inner structure
-    pub fn inner_access(&self) -> Ref<'_, TaskMetaInner> {
+    pub(crate) fn inner_access(&self) -> Ref<'_, TaskMetaInner> {
         self.inner.access()
     }
 
     /// Get the mutable inner structure
-    pub fn inner_exclusive_access(&self) -> RefMut<'_, TaskMetaInner> {
+    pub(crate) fn inner_exclusive_access(&self) -> RefMut<'_, TaskMetaInner> {
         self.inner.exclusive_access()
     }
 
     /// Get the current task's context pointer
-    pub fn task_ctx_ptr(&self) -> *const TaskContext {
+    pub(crate) fn task_ctx_ptr(&self) -> *const TaskContext {
         &self.task_ctx as *const TaskContext
     }
 
-    pub fn pid(&self) -> usize {
+    pub(crate) fn pid(&self) -> usize {
         self.tracker.pid()
     }
 
-    pub fn user_token(&self) -> usize {
+    pub(crate) fn user_token(&self) -> usize {
         self.inner_access().space().mmu_token()
     }
 
     /// Check the state of task if was zombie
-    pub fn is_zombie(&self) -> bool {
+    pub(crate) fn is_zombie(&self) -> bool {
         self.inner_access().status().is_zombie()
     }
 
     /// The byte size of the task code and user stack
-    pub fn base_size(&self) -> usize {
+    pub(crate) fn base_size(&self) -> usize {
         self.base_size
     }
 
-    pub fn mark_suspended(&self) {
+    pub(crate) fn mark_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         inner.status = TaskStatus::Suspended;
     }
 
-    pub fn mark_running(&self) {
+    pub(crate) fn mark_running(&self) {
         let mut inner = self.inner.exclusive_access();
         inner.status = TaskStatus::Running;
     }
@@ -381,7 +435,7 @@ impl TaskMeta {
     ///
     /// # Arguments
     /// * exit_code: The exit code passing from user space
-    pub fn mark_zombie(&self, exit_code: i32) {
+    pub(crate) fn mark_zombie(&self, exit_code: i32) {
         let mut inner = self.inner.exclusive_access();
         inner.status = TaskStatus::Zombie;
         inner.set_exit_code(exit_code as usize);
@@ -396,38 +450,36 @@ impl TaskMeta {
 }
 
 /// Task queue that contains all ready tasks which are waiting for running
-pub struct TaskController {
+pub(crate) struct TaskController {
     dqueue: VecDeque<Arc<TaskMeta>>,
 }
 
 impl TaskController {
     /// Get the length of the queue
-    #[inline(always)]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.dqueue.len()
     }
 
     /// Put a task into the queue
-    #[inline(always)]
-    pub fn put(&mut self, task: Arc<TaskMeta>) {
+    pub(crate) fn put(&mut self, task: Arc<TaskMeta>) {
         self.dqueue.push_back(task);
     }
 
     /// Fetch and pop the first task from the queue
-    #[inline(always)]
-    pub fn fetch(&mut self) -> Option<Arc<TaskMeta>> {
+    pub(crate) fn fetch(&mut self) -> Option<Arc<TaskMeta>> {
         self.dqueue.pop_front()
     }
 
     /// Create a new task controller, which will load the task code and create the virtual address space
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             dqueue: VecDeque::new(),
         }
     }
 }
 
-pub fn init_pid_allocator() {
+#[inline(always)]
+pub(crate) fn init_pid_allocator() {
     let mut allocator = PID_ALLOCATOR.exclusive_access();
     allocator.init(0, configs::MAX_PID_COUNT);
     debug!(

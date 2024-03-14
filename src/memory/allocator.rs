@@ -25,7 +25,7 @@ use crate::lang::error::*;
 /// |     occupied       |            available            | <- this is ok
 /// |     occupied       |    available    |    occupied   | <- this is ok
 /// |     occupied       |    occupied    |    available   | <- this is bad!!!
-pub struct PageNode {
+pub(crate) struct PageNode {
     /// When used is true, it mean that the interval [current page, next page) is occupied
     used: bool,
     /// The virtual memory page number
@@ -100,7 +100,7 @@ impl PageNode {
 }
 
 /// The allocation manager which contain the root node of page node linked list
-pub struct LinkedListPageRangeAllocator {
+pub(crate) struct LinkedListPageRangeAllocator {
     root: Arc<UserPromiseRefCell<PageNode>>,
 }
 impl LinkedListPageRangeAllocator {
@@ -108,7 +108,7 @@ impl LinkedListPageRangeAllocator {
     /// # Arguments
     /// * start_vpn: the first virtual memory page number
     /// * end_vpn: the last virtual memory page number, which will not be allocated
-    pub fn new(start_vpn: usize, end_vpn: usize) -> Self {
+    pub(crate) fn new(start_vpn: usize, end_vpn: usize) -> Self {
         assert!(start_vpn < end_vpn);
         let start_page_node =
             Arc::new(unsafe { UserPromiseRefCell::new(PageNode::new(false, start_vpn)) });
@@ -228,8 +228,7 @@ impl LinkedListPageRangeAllocator {
     /// # Returns
     /// * Some(()): change succeeded
     /// * None: change failed
-    #[inline(always)]
-    pub fn alloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
+        pub(crate) fn alloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
         self.change(start_vpn, end_vpn, true)
     }
 
@@ -241,15 +240,14 @@ impl LinkedListPageRangeAllocator {
     /// # Returns
     /// * Some(()): change succeeded
     /// * None: change failed
-    #[inline(always)]
-    pub fn dealloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
+        pub(crate) fn dealloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
         self.change(start_vpn, end_vpn, false)
     }
 }
 
 /// A physical memory frame allocation manager
 /// which will keep all frames in control.
-pub struct BTreeSetFrameAllocator {
+pub(crate) struct BTreeSetFrameAllocator {
     /// not yet allocated physical page number
     /// which will be allocated in next time allocating when no more recycled frames
     current_ppn: usize,
@@ -261,7 +259,7 @@ pub struct BTreeSetFrameAllocator {
 }
 impl BTreeSetFrameAllocator {
     /// Create a new BTreeSetFrameAllocator
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             current_ppn: 0,
             end_ppn: 0,
@@ -270,14 +268,12 @@ impl BTreeSetFrameAllocator {
     }
 
     /// Get current physical page number
-    #[inline(always)]
-    pub fn current_ppn(&self) -> usize {
+        pub(crate) fn current_ppn(&self) -> usize {
         self.current_ppn
     }
 
     /// Get the end of physical page number
-    #[inline(always)]
-    pub fn end_ppn(&self) -> usize {
+        pub(crate) fn end_ppn(&self) -> usize {
         self.end_ppn
     }
 
@@ -286,7 +282,7 @@ impl BTreeSetFrameAllocator {
     /// # Arguments
     /// * current_ppn: the current physical page number which will be used in next time allocating
     /// * end_ppn: the end physical page number which will not be used, it must greater than current
-    pub fn init(&mut self, current_ppn: usize, end_ppn: usize) {
+    pub(crate) fn init(&mut self, current_ppn: usize, end_ppn: usize) {
         assert!(current_ppn < end_ppn);
         self.current_ppn = current_ppn;
         self.end_ppn = end_ppn;
@@ -297,7 +293,7 @@ impl BTreeSetFrameAllocator {
     /// # Returns
     /// * Ok(usize): the new physical page number
     /// * Err(KernelError::FrameExhausted): if no other frame can be allocated
-    pub fn alloc(&mut self) -> Result<usize> {
+    pub(crate) fn alloc(&mut self) -> Result<usize> {
         if let Some(ppn) = self.recycled.pop_first() {
             Ok(ppn)
         } else {
@@ -316,7 +312,7 @@ impl BTreeSetFrameAllocator {
     /// # Returns
     /// * Ok(())
     /// * Err(KernelError::FrameNotDeallocable(ppn))
-    pub fn dealloc(&mut self, ppn: usize) -> Result<()> {
+    pub(crate) fn dealloc(&mut self, ppn: usize) -> Result<()> {
         if ppn >= self.current_ppn || !self.recycled.insert(ppn) {
             Err(KernelError::FrameNotDeallocable(ppn))
         } else {

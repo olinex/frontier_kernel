@@ -13,7 +13,7 @@ const MICRO_PER_SEC: usize = 1_000_000;
 
 /// Set the timer to make cpu can be interrupted
 #[inline(always)]
-pub fn set_next_trigger() {
+pub(crate) fn set_next_trigger() {
     SBI::set_timer(SBI::get_timer() + (configs::BOARD_CLOCK_FREQ / configs::TICKS_PER_SEC));
 }
 
@@ -23,6 +23,6 @@ pub fn set_next_trigger() {
 /// * 1 seconds = 1000 milliseconds 
 /// * 1 milliseconds = 1000 microseconds
 #[inline(always)]
-pub fn get_timer_us() -> usize {
+pub(crate) fn get_timer_us() -> usize {
     SBI::get_timer() * MICRO_PER_SEC / configs::BOARD_CLOCK_FREQ
 }

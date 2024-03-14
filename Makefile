@@ -9,9 +9,11 @@ MODE := release
 CPU := unknown
 TARGET := $(ISAC)-$(CPU)-none-elf
 TARGET_DIR := ./target/$(TARGET)
+USER_TARGET_DIR := ../frontier_user/target/$(TARGET)
 RUNTIME_DIR := ./runtime
 LINKER_DIR := ./linker
 TEST_COMMAND := noneOfTest
+USER_FS_IMG := user-fs.img
 
 RUNTIME := $(RUNTIME_DIR)/$(SBI)-$(BOARD).bin
 SOURCE_MEMORY_LINKERLD := $(LINKER_DIR)/$(ISA)/$(SBI)-$(BOARD)-memory.ld
@@ -23,6 +25,13 @@ KERNEL_BIN := $(KERNEL_ELF).bin
 SOURCE_TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/deps/frontier_kernel-*
 TEST_KERNEL_ELF := $(TARGET_DIR)/$(MODE)/frontier_kernel_unittest
 TEST_KERNEL_BIN := $(TEST_KERNEL_ELF).bin
+USER_FS_IMG_PATH := $(USER_TARGET_DIR)/$(MODE)/$(USER_FS_IMG)
+QEMU_COMMAND_ARGS := -machine virt \
+	-nographic \
+	-bios $(RUNTIME) \
+	-drive file=$(USER_FS_IMG_PATH),if=none,format=raw,id=x0 \
+	-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+
 
 # Binutils
 OBJDUMP := rust-objdump --arch-name=$(ISA)
@@ -122,25 +131,17 @@ build-test: $(TEST_KERNEL_BIN)
 
 # Build the kernel and run it in qemu
 run-with-qemu: build
-	@qemu-system-$(ISA) \
-		-machine virt \
-		-nographic \
-		-bios $(RUNTIME) \
-		-device loader,file=$(KERNEL_ELF)
+	@qemu-system-$(ISA) -device loader,file=$(KERNEL_ELF) $(QEMU_COMMAND_ARGS)
 
 # Build the kernel and run it in qemu
 test-with-qemu: build-test
-	@qemu-system-$(ISA) \
-		-machine virt \
-		-nographic \
-		-bios $(RUNTIME) \
-		-device loader,file=$(TEST_KERNEL_ELF)
+	@qemu-system-$(ISA) -device loader,file=$(TEST_KERNEL_ELF) $(QEMU_COMMAND_ARGS)
 
 # Run tmux and split two windows with gdbclient and qemu
 debug-with-qemu: build
 	@tmux new-session -d \
-		"qemu-system-$(ISA) -machine virt -nographic -bios $(RUNTIME) -device loader,file=$(KERNEL_ELF) -s -S" && \
-		tmux split-window -h "$(ISA)-unknown-elf-gdb-py -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
+		"qemu-system-$(ISA) -device loader,file=$(KERNEL_ELF) $(QEMU_COMMAND_ARGS) -s -S" && \
+		tmux split-window -h "$(ISA)-unknown-elf-gdb -nw -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
 
 clear:

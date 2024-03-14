@@ -12,7 +12,7 @@ use crate::prelude::*;
 
 //// A pid allocation manager.
 /// which will keep all pid in control.
-pub struct BTreePidAllocator {
+pub(crate) struct BTreePidAllocator {
     /// not yet allocated proccess id
     current_pid: usize,
     /// end process id, which will not be allocated
@@ -22,7 +22,7 @@ pub struct BTreePidAllocator {
 }
 impl BTreePidAllocator {
     /// Create a new allocator
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             current_pid: 0,
             end_pid: usize::MAX,
@@ -31,14 +31,12 @@ impl BTreePidAllocator {
     }
 
     /// Get current allocable proccess id
-    #[inline(always)]
-    pub fn current_pid(&self) -> usize {
+        pub(crate) fn current_pid(&self) -> usize {
         self.current_pid
     }
 
     /// Get the end of process id
-    #[inline(always)]
-    pub fn end_pid(&self) -> usize {
+        pub(crate) fn end_pid(&self) -> usize {
         self.end_pid
     }
 
@@ -47,7 +45,7 @@ impl BTreePidAllocator {
     /// # Arguments
     /// * current_pid: the current process id which will be used in next time allocating
     /// * end_pid: the end of process id which will not be used
-    pub fn init(&mut self, current_pid: usize, end_pid: usize) {
+    pub(crate) fn init(&mut self, current_pid: usize, end_pid: usize) {
         assert!(current_pid < end_pid);
         self.current_pid = current_pid;
         self.end_pid = end_pid;
@@ -58,7 +56,7 @@ impl BTreePidAllocator {
     /// # Returns
     /// * Ok(usize): the new process id
     /// * Err(KernelError::PidExhausted): if no other process id can be allocated
-    pub fn alloc(&mut self) -> Result<usize> {
+    pub(crate) fn alloc(&mut self) -> Result<usize> {
         if let Some(pid) = self.recycled.pop_first() {
             Ok(pid)
         } else {
@@ -77,7 +75,7 @@ impl BTreePidAllocator {
     /// # Returns
     /// * Ok(())
     /// * Err(KernelError::PidNotDeallocable(pid))
-    pub fn dealloc(&mut self, pid: usize) -> Result<()> {
+    pub(crate) fn dealloc(&mut self, pid: usize) -> Result<()> {
         if pid >= self.current_pid || !self.recycled.insert(pid) {
             Err(KernelError::PidNotDeallocable(pid))
         } else {

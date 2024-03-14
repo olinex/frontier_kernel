@@ -14,7 +14,7 @@ use crate::lang::container::UserPromiseRefCell;
 use crate::{configs, prelude::*};
 
 /// Keep the current running task the processor structure
-pub struct Processor {
+pub(crate) struct Processor {
     current: Option<Arc<TaskMeta>>,
     idle_task_ctx: TaskContext,
 }
@@ -40,30 +40,30 @@ impl Processor {
 
 lazy_static! {
     /// The global visibility task controller which will load all tasks's code and create virtual address space lazily.
-    pub static ref TASK_CONTROLLER: Arc<UserPromiseRefCell<TaskController>> = {
+    pub(crate) static ref TASK_CONTROLLER: Arc<UserPromiseRefCell<TaskController>> = {
         Arc::new(unsafe {UserPromiseRefCell::new(TaskController::new())})
     };
 }
 impl TASK_CONTROLLER {
-    pub fn task_count(&self) -> usize {
+    pub(crate) fn task_count(&self) -> usize {
         self.access().len()
     }
 
-    pub fn add_task(&self, task: Arc<TaskMeta>) {
+    pub(crate) fn add_task(&self, task: Arc<TaskMeta>) {
         self.exclusive_access().put(task);
     }
 
-    pub fn fetch_task(&self) -> Option<Arc<TaskMeta>> {
+    pub(crate) fn fetch_task(&self) -> Option<Arc<TaskMeta>> {
         self.exclusive_access().fetch()
     }
 }
 
 lazy_static! {
-    pub static ref PROCESSOR: Arc<UserPromiseRefCell<Processor>> =
+    pub(crate) static ref PROCESSOR: Arc<UserPromiseRefCell<Processor>> =
         Arc::new(unsafe { UserPromiseRefCell::new(Processor::new()) });
 }
 impl PROCESSOR {
-    pub fn current_task(&self) -> Result<Arc<TaskMeta>> {
+    pub(crate) fn current_task(&self) -> Result<Arc<TaskMeta>> {
         self.exclusive_access()
             .current()
             .ok_or(KernelError::ProcessHaveNotTask)
@@ -71,17 +71,17 @@ impl PROCESSOR {
 
     /// switch current process to idle task context
     fn idle(&self, switched_task_cx_ptr: *mut TaskContext) {
-        let idle_task_cx_ptr = {
-            let mut processor = self.exclusive_access();
-            processor.get_idle_task_ctx_ptr()
-        };
+        let mut processor = self.exclusive_access();
+        let idle_task_cx_ptr = processor.get_idle_task_ctx_ptr();
+        drop(processor);
         unsafe {
             switch::_fn_switch_task(switched_task_cx_ptr, idle_task_cx_ptr);
         }
     }
 
     /// Fetch a runnable task and switch current process to it
-    pub fn schedule(&self) -> ! {
+    #[inline(always)]
+    pub(crate) fn schedule(&self) -> ! {
         loop {
             let mut processor = self.exclusive_access();
             if let Some(task) = TASK_CONTROLLER.fetch_task() {
@@ -104,7 +104,7 @@ impl PROCESSOR {
     /// # Returns
     /// * Ok(())
     /// * Err(KernelError::ProcessHaveNotTask)
-    pub fn suspend_current_and_run_other_task(&self) -> Result<()> {
+    pub(crate) fn suspend_current_and_run_other_task(&self) -> Result<()> {
         let processor = self.access();
         if let Some(meta) = &processor.current {
             meta.mark_suspended();
@@ -127,7 +127,7 @@ impl PROCESSOR {
     /// # Returns
     /// * Ok(())
     /// * Err(KernelError::ProcessHaveNotTask)
-    pub fn exit_current_and_run_other_task(&self, exit_code: i32) -> Result<()> {
+    pub(crate) fn exit_current_and_run_other_task(&self, exit_code: i32) -> Result<()> {
         debug!(
             "exit current task, still {} tasks",
             TASK_CONTROLLER.task_count()
@@ -146,14 +146,15 @@ impl PROCESSOR {
 }
 
 lazy_static! {
-    pub static ref INITPROC: Arc<TaskMeta> = TaskMeta::new_init_proc().unwrap();
+    pub(crate) static ref INITPROC: Arc<TaskMeta> = TaskMeta::new_init_proc().unwrap();
 }
 
 /// Add a initial process to the task queue.
-pub fn add_init_proc() {
+#[inline(always)]
+pub(crate) fn add_init_proc() {
     debug!(
         "adding initial task {} to task queue",
-        configs::INIT_PROCESS_NAME
+        configs::INIT_PROCESS_PATH
     );
     TASK_CONTROLLER.add_task(Arc::clone(&INITPROC));
 }

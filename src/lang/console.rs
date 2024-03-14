@@ -21,6 +21,6 @@ impl Write for Stdout {
 struct Stdout;
 
 // impl rust buildin print function
-pub fn print(args: fmt::Arguments) {
+pub(crate) fn print(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap();
 }

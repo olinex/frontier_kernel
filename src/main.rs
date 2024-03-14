@@ -30,13 +30,10 @@ extern crate bit_field;
 extern crate riscv;
 
 // self mods
-
-// use other mods
-use core::arch::global_asm;
-
-// use self mods
 mod configs;
 mod constant;
+mod drivers;
+mod fs;
 mod lang;
 mod memory;
 mod sbi;
@@ -44,10 +41,15 @@ mod syscall;
 mod task;
 mod trap;
 
+// use other mods
+use core::arch::global_asm;
+
+// use self mods
+
 // re export commonly used modules or functions
 mod prelude {
-    pub use crate::lang::error::*;
-    pub use crate::{print, println};
+    pub(crate) use crate::lang::error::*;
+    pub(crate) use crate::{print, println};
 }
 
 // load assembly file and do init
@@ -59,29 +61,20 @@ cfg_if! {
     }
 }
 
-// will be called in [`./assembly/riscv64/entry.asm`]
-// for avoid rust main entrypoint symbol be confused by compiler
-cfg_if! {
-    if #[cfg(not(test))] {
-        // for testing in qemu
-        #[no_mangle]
-        fn main() -> ! {
-            init();
-            task::run();
-        }
-    } else {
-        #[no_mangle]
-        fn main() -> () {
-            init();
-            test_main();
-        }
-    }
+/// Initially make bss section to zero is very import when kernel was initializing.
+/// It must be called at the very first when kernel was booting.
+/// This method must be compiling as inline code, 
+/// because the boot stack was containing in the bss section
+/// and all the boot stack will be set to zero.
+#[inline(always)]
+pub(crate) fn clear_bss() {
+    // force set all byte to zero
+    (configs::_addr_bss_start as usize..configs::_addr_bss_end as usize)
+        .for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
 }
 
 #[inline(always)]
 fn init() {
-    // clear bss must be the first thing to be done
-    memory::clear_bss();
     // make logger marcos enable
     lang::logger::init();
     // make kernel memory heap and page table enable, initialize kernel space
@@ -90,4 +83,29 @@ fn init() {
     trap::init();
     // make process enable
     task::init();
+}
+
+// will be called in [`./assembly/riscv64/entry.asm`]
+// for avoid rust main entrypoint symbol be confused by compiler
+cfg_if! {
+    if #[cfg(not(test))] {
+        // for testing in qemu
+        #[no_mangle]
+        #[inline(always)]
+        fn main() -> ! {
+            // clear bss must be the first thing to be done
+            clear_bss();
+            init();
+            task::run();
+        }
+    } else {
+        #[no_mangle]
+        #[inline(always)]
+        fn main() -> () {
+            // clear bss must be the first thing to be done
+            clear_bss();
+            init();
+            test_main();
+        }
+    }
 }

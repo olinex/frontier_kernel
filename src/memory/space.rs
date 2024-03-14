@@ -16,6 +16,7 @@ use elf::ElfBytes;
 // use self mods
 use super::allocator::LinkedListPageRangeAllocator;
 use super::area::{Area, AreaMapping};
+use super::buffer::ByteBuffers;
 use super::page_table::{PageTable, MAX_TASK_ID};
 use super::{PageTableFlags, PageTableTr};
 use crate::constant::ascii;
@@ -24,7 +25,7 @@ use crate::sbi::{self, SBIApi};
 use crate::{configs, prelude::*};
 
 /// The abstract structure which represents the virtual memory address space
-pub struct Space {
+pub(crate) struct Space {
     /// Areas of the virtual page range, which keys are the the start and end virtual page number
     area_set: BTreeMap<(usize, usize), Area>,
     /// The table of pages represented by the virtual address space
@@ -59,7 +60,7 @@ impl Space {
     ///
     /// # Returns
     /// * (start virtual page number, end virtual page number)
-    pub fn get_kernel_task_stack_vpn_range(asid: usize) -> (usize, usize) {
+    pub(crate) fn get_kernel_task_stack_vpn_range(asid: usize) -> (usize, usize) {
         let max_vpn = *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER;
         let stack_page_count = Self::vpn_ceil(configs::KERNEL_TASK_STACK_BYTE_SIZE);
         let end_vpn = max_vpn - (stack_page_count + configs::KERNEL_GUARD_PAGE_COUNT) * asid;
@@ -90,7 +91,7 @@ impl Space {
     ///
     /// # Returns
     /// * (start virtual page number, end virtual page number)
-    pub fn get_user_task_stack_vpn_range(end_va: usize) -> (usize, usize) {
+    pub(crate) fn get_user_task_stack_vpn_range(end_va: usize) -> (usize, usize) {
         let start_va = end_va + configs::KERNEL_GUARD_PAGE_COUNT * configs::MEMORY_PAGE_BYTE_SIZE;
         let end_va = start_va + configs::USER_TASK_STACK_BYTE_SIZE;
         (Self::vpn_ceil(start_va), Self::vpn_ceil(end_va))
@@ -100,8 +101,7 @@ impl Space {
     ///
     /// # Arguments
     /// * va: virtual address
-    #[inline(always)]
-    fn vpn_ceil(va: usize) -> usize {
+        fn vpn_ceil(va: usize) -> usize {
         // TODO: pa may too big and overflow
         PageTable::get_vpn_with(va + configs::MEMORY_PAGE_BYTE_SIZE - 1)
     }
@@ -110,8 +110,7 @@ impl Space {
     ///
     /// # Arguments
     /// * va: virtual address
-    #[inline(always)]
-    fn vpn_floor(va: usize) -> usize {
+        fn vpn_floor(va: usize) -> usize {
         PageTable::get_vpn_with(va)
     }
 
@@ -123,8 +122,7 @@ impl Space {
     /// ---------------------------------
     /// |      trap context page        |
     /// ---------------------------------
-    #[inline(always)]
-    pub fn trap_ctx_ppn(&self) -> Result<usize> {
+        pub(crate) fn trap_ctx_ppn(&self) -> Result<usize> {
         self.page_table
             .access()
             .translate_ppn_with(*super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER)
@@ -134,14 +132,12 @@ impl Space {
     }
 
     /// Get the memory manager unit token, which is pointed to the space's page table
-    #[inline(always)]
-    pub fn mmu_token(&self) -> usize {
+        pub(crate) fn mmu_token(&self) -> usize {
         self.page_table.access().mmu_token()
     }
 
     /// Make current address space activate by wirtting the mmu token to the register
-    #[inline(always)]
-    fn activate(&self) {
+        fn activate(&self) {
         unsafe { sbi::SBI::write_mmu_token(self.mmu_token()) };
     }
 
@@ -219,8 +215,7 @@ impl Space {
     /// # Returns
     /// * Ok(&Area)
     /// * Err(KernelError::AreaNotExists(start_vpn, end_vpn))
-    #[inline(always)]
-    pub fn get_trap_context_area(&self) -> Result<&Area> {
+        pub(crate) fn get_trap_context_area(&self) -> Result<&Area> {
         self.get_area(
             *super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER,
             *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER,
@@ -238,11 +233,7 @@ impl Space {
     ///
     /// # Returns
     /// * Ok(Vec[mut &'static [u8]])
-    pub fn translated_byte_buffers(
-        &self,
-        ptr: *const u8,
-        len: usize,
-    ) -> Result<Vec<&'static mut [u8]>> {
+    pub(crate) fn translated_byte_buffers(&self, ptr: *const u8, len: usize) -> Result<ByteBuffers> {
         let mut start_va = ptr as usize;
         let end_va = start_va + len;
         let mut buffers = vec![];
@@ -260,7 +251,7 @@ impl Space {
             buffers.push(&mut buffer[tmp_start_offset..tmp_end_offset]);
             start_va = tmp_end_va;
         }
-        Ok(buffers)
+        Ok(ByteBuffers::new(buffers, len))
     }
 
     /// Translate a byte pointer into the String from current space to the current stack,
@@ -274,7 +265,7 @@ impl Space {
     ///
     /// # Returns
     /// Ok(String)
-    pub fn translated_string(&self, ptr: *const u8) -> Result<String> {
+    pub(crate) fn translated_string(&self, ptr: *const u8) -> Result<String> {
         let mut start_va = ptr as usize;
         let mut string = String::new();
         let page_table = self.page_table.access();
@@ -306,12 +297,19 @@ impl Space {
     ///
     /// # Returns
     /// Ok(&mut T)
-    pub fn translated_refmut<T>(&self, ptr: *const T) -> Result<&mut T> {
+    pub(crate) fn translated_refmut<T>(&self, ptr: *const T) -> Result<&mut T> {
         let vpn = Self::vpn_floor(ptr as usize);
         let offset = PageTable::get_va_offset(ptr as usize);
         self.page_table
             .exclusive_access()
             .as_kernel_mut(vpn, offset)
+    }
+
+    pub(crate) fn translate_pa(&self, va: usize) -> Option<usize> {
+        let vpn = Self::vpn_floor(va);
+        let offset = PageTable::get_va_offset(va);
+        let ppn = self.page_table.access().translate_ppn_with(vpn)?;
+        Some(ppn * configs::MEMORY_PAGE_BYTE_SIZE + offset)
     }
 
     /// Map trampoline frame to the current address space's max page,
@@ -464,6 +462,31 @@ impl Space {
                 PageTable::cal_base_va_with(end_vpn),
             );
         }
+        // map read write bootstack segment as area
+        let start_vpn = Self::vpn_floor(configs::_addr_bootstack_start as usize);
+        let end_vpn = Self::vpn_ceil(configs::_addr_bootstack_end as usize);
+        if start_vpn != end_vpn {
+            let area = Area::new(
+                start_vpn,
+                end_vpn,
+                PageTableFlags::RW,
+                AreaMapping::Identical,
+                &space.page_range_allocator,
+                &space.page_table,
+            )?;
+            space.push(area, 0, None)?;
+            debug!(
+                "[{:#018x}, {:#018x}): mapped kernel bootstack segment address range",
+                PageTable::cal_base_va_with(start_vpn),
+                PageTable::cal_base_va_with(end_vpn),
+            );
+        } else {
+            warn!(
+                "[{:#018x}, {:#018x}): empty kernel bootstack segment!",
+                PageTable::cal_base_va_with(start_vpn),
+                PageTable::cal_base_va_with(end_vpn),
+            );
+        }
         // map block started by symbol segment as area
         let start_vpn = Self::vpn_floor(configs::_addr_bss_start as usize);
         let end_vpn = Self::vpn_ceil(configs::_addr_bss_end as usize);
@@ -512,13 +535,13 @@ impl Space {
         Ok(space)
     }
 
-    pub fn recycle_data_pages(&mut self) {
+    pub(crate) fn recycle_data_pages(&mut self) {
         self.area_set.clear();
     }
 }
 
 lazy_static! {
-    pub static ref KERNEL_SPACE: Arc<UserPromiseRefCell<Space>> =
+    pub(crate) static ref KERNEL_SPACE: Arc<UserPromiseRefCell<Space>> =
         Arc::new(unsafe { UserPromiseRefCell::new(Space::new_kernel().unwrap()) });
 }
 impl KERNEL_SPACE {
@@ -577,7 +600,7 @@ impl KERNEL_SPACE {
     ///
     /// # Returns
     /// * Ok((Self, user_stack_top_va, kernel_stack_top_va, elf_entry_point))
-    pub fn new_user_from_elf(asid: usize, data: &[u8]) -> Result<(Space, usize, usize)> {
+    pub(crate) fn new_user_from_elf(asid: usize, data: &[u8]) -> Result<(Space, usize, usize)> {
         let elf_bytes = ElfBytes::<AnyEndian>::minimal_parse(data)?;
         let program_headers: Vec<ProgramHeader> = elf_bytes
             .segments()
@@ -672,7 +695,7 @@ impl KERNEL_SPACE {
     ///
     /// # Returns
     /// * Ok(Space)
-    pub fn new_user_from_another(asid: usize, another: &Space) -> Result<Space> {
+    pub(crate) fn new_user_from_another(asid: usize, another: &Space) -> Result<Space> {
         let mut space = Space::new_bare(asid)?;
         for ((start_vpn, end_vpn), other_area) in another.area_set.iter() {
             let area =
@@ -696,7 +719,7 @@ impl KERNEL_SPACE {
     ///
     /// # Returns
     /// * Ok(kernel stack top vpn)
-    pub fn map_kernel_task_stack(&self, asid: usize) -> Result<usize> {
+    pub(crate) fn map_kernel_task_stack(&self, asid: usize) -> Result<usize> {
         let (kernel_stack_bottom_vpn, kernel_stack_top_vpn) =
             Space::get_kernel_task_stack_vpn_range(asid);
         let mut kernel_space = self.exclusive_access();
@@ -726,7 +749,7 @@ impl KERNEL_SPACE {
     ///
     /// # Returns
     /// * Ok(())
-    pub fn unmap_kernel_task_stack(&self, asid: usize) -> Result<()> {
+    pub(crate) fn unmap_kernel_task_stack(&self, asid: usize) -> Result<()> {
         let (start_vpn, end_vpn) = Space::get_kernel_task_stack_vpn_range(asid);
         self.exclusive_access().pop(start_vpn, end_vpn)?;
         debug!(
@@ -741,7 +764,8 @@ impl KERNEL_SPACE {
 /// Initially make the kernel space available.
 /// Before calling this method, we must make sure that the mapping of the kernel address space is correct,
 /// otherwise very complicated problems will occur
-pub fn init_kernel_space() {
+#[inline(always)]
+pub(crate) fn init_kernel_space() {
     KERNEL_SPACE.exclusive_access().activate();
 }
 

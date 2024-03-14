@@ -2,15 +2,15 @@
 // @time:      2023/03/09
 
 // self mods
-// pub mod bitmap;
-pub mod console;
-pub mod container;
-pub mod error;
-pub mod logger;
-pub mod macros;
-pub mod panic;
-pub mod test;
-pub mod timer;
+// pub(crate) mod bitmap;
+pub(crate) mod console;
+pub(crate) mod container;
+pub(crate) mod error;
+pub(crate) mod logger;
+pub(crate) mod macros;
+pub(crate) mod panic;
+pub(crate) mod test;
+pub(crate) mod timer;
 
 // use other mods
 

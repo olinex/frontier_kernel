@@ -7,10 +7,10 @@
 
 // use self mods
 
-pub mod ascii {
-    pub const NULL: u8 = 0x00;
-    // pub const LINE_FEED: u8 = 0x0a;
-    // pub const CARRIAGE_RETURN: u8 = 0x0d;
-    // pub const DELETE: u8 = 0x7f;
-    // pub const BACK_SPACE: u8 = 0x08;
+pub(crate) mod ascii {
+    pub(crate) const NULL: u8 = 0x00;
+    // pub(crate) const LINE_FEED: u8 = 0x0a;
+    // pub(crate) const CARRIAGE_RETURN: u8 = 0x0d;
+    // pub(crate) const DELETE: u8 = 0x7f;
+    // pub(crate) const BACK_SPACE: u8 = 0x08;
 }

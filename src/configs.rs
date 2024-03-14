@@ -7,31 +7,35 @@
 use log::Level;
 
 // use self mods
-pub const MEMORY_PAGE_BYTE_SIZE: usize = 4096;
-pub const MEMORY_PAGE_BIT_SITE: usize = 12;
+pub(crate) const MEMORY_PAGE_BYTE_SIZE: usize = 4096;
+pub(crate) const MEMORY_PAGE_BIT_SITE: usize = 12;
 
 /// Stack byte size must be greater than 4k
 /// Because for the safety reasons
 /// We inject some guard page between stack area and other area
-pub const USER_TASK_STACK_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 8;
-pub const KERNEL_TASK_STACK_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 2;
-pub const KERNEL_HEAP_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 256;
-pub const KERNEL_GUARD_PAGE_COUNT: usize = 1;
-pub const MAX_VIRTUAL_ADDRESS: usize = usize::MAX;
-pub const MAX_PID_COUNT: usize = 65536;
-pub const INIT_PROCESS_NAME: &'static str = "initproc";
-pub const TRAMPOLINE_VIRTUAL_BASE_ADDR: usize = MAX_VIRTUAL_ADDRESS - MEMORY_PAGE_BYTE_SIZE + 1;
-pub const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADDR - MEMORY_PAGE_BYTE_SIZE;
-pub const TICKS_PER_SEC: usize = 100;
-pub const LOG_LEVEL: Level = Level::Debug;
+pub(crate) const USER_TASK_STACK_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 8;
+pub(crate) const KERNEL_TASK_STACK_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 2;
+pub(crate) const KERNEL_HEAP_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 512;
+pub(crate) const KERNEL_GUARD_PAGE_COUNT: usize = 1;
+pub(crate) const MAX_VIRTUAL_ADDRESS: usize = usize::MAX;
+pub(crate) const MAX_PID_COUNT: usize = 65536;
+pub(crate) const INIT_PROCESS_PATH: &'static str = "/initproc";
+pub(crate) const TRAMPOLINE_VIRTUAL_BASE_ADDR: usize = MAX_VIRTUAL_ADDRESS - MEMORY_PAGE_BYTE_SIZE + 1;
+pub(crate) const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADDR - MEMORY_PAGE_BYTE_SIZE;
+pub(crate) const TICKS_PER_SEC: usize = 100;
+pub(crate) const LOG_LEVEL: Level = Level::Debug;
+pub(crate) const MAX_FD_COUNT: usize = 65536;
 
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {
         // the frequency of the board clock in Hz
-        pub const BOARD_CLOCK_FREQ: usize = 12_500_000;
+        pub(crate) const BOARD_CLOCK_FREQ: usize = 12_500_000;
         // the memory-mapped io registers virtual address range
-        pub const MMIO: &[(usize, usize)] = &[
-            (0x0010_0000, 0x0010_2000)
+        pub(crate) const MMIO: &[(usize, usize)] = &[
+            // VIRT_TEST/RTC  in virt machine
+            (0x0010_0000, 0x0010_2000),
+            // Virtio Block in virt machine
+            (0x1000_1000, 0x1000_2000),
         ];
     } else {
         compile_error!("Unknown feature for board");
@@ -40,26 +44,29 @@ cfg_if! {
 
 // the range of the code sections
 extern "C" {
-    pub fn _addr_text_start();
-    pub fn _addr_text_end();
+    pub(crate) fn _addr_text_start();
+    pub(crate) fn _addr_text_end();
 
-    pub fn _addr_rodata_start();
-    pub fn _addr_rodata_end();
+    pub(crate) fn _addr_rodata_start();
+    pub(crate) fn _addr_rodata_end();
 
-    pub fn _addr_data_start();
-    pub fn _addr_data_end();
+    pub(crate) fn _addr_data_start();
+    pub(crate) fn _addr_data_end();
 
-    pub fn _addr_bss_start();
-    pub fn _addr_bss_end();
+    pub(crate) fn _addr_bootstack_start();
+    pub(crate) fn _addr_bootstack_end();
 
-    pub fn _addr_mem_start();
-    pub fn _addr_mem_end();
+    pub(crate) fn _addr_bss_start();
+    pub(crate) fn _addr_bss_end();
 
-    pub fn _addr_kernel_mem_start();
-    pub fn _addr_kernel_mem_end();
+    pub(crate) fn _addr_mem_start();
+    pub(crate) fn _addr_mem_end();
 
-    pub fn _addr_free_mem_start();
-    pub fn _addr_free_mem_end();
+    pub(crate) fn _addr_kernel_mem_start();
+    pub(crate) fn _addr_kernel_mem_end();
 
-    pub fn _fn_trampoline();
+    pub(crate) fn _addr_free_mem_start();
+    pub(crate) fn _addr_free_mem_end();
+
+    pub(crate) fn _fn_trampoline();
 }

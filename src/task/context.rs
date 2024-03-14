@@ -14,7 +14,7 @@ use crate::trap::handler::trap_return;
 /// we must save the return address/user stack pointer and other callee saved registers
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct TaskContext {
+pub(crate) struct TaskContext {
     // the return address which will be used after switching to the current task
     ra: usize,
     // the stack pointer which the task is currently using
@@ -26,7 +26,7 @@ pub struct TaskContext {
 impl TaskContext {
 
     /// Create a new empty task context
-    pub fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             ra: 0,
             sp: 0,
@@ -35,7 +35,7 @@ impl TaskContext {
     }
 
     /// Make the [crate::trap::handler::trap_return] as the return address after switching to the other
-    pub fn goto_trap_return(&mut self, kernel_stack_ctx_va: usize) {
+    pub(crate) fn goto_trap_return(&mut self, kernel_stack_ctx_va: usize) {
         self.ra = trap_return as usize;
         self.sp = kernel_stack_ctx_va;
     }

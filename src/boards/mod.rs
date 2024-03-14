@@ -4,8 +4,8 @@
 // self mods
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {
-        pub mod board_qemu;
-        pub use board_qemu as board;
+        pub(crate) mod board_qemu;
+        pub(crate) use board_qemu as board;
     }
 }
 
@@ -14,7 +14,7 @@ cfg_if! {
 // use self mods
 
 
-pub trait Exit {
+pub(crate) trait Exit {
     fn exit_success(&self) -> !;
     fn exit_failure(&self) -> !;
     fn exit_reset(&self) -> !;

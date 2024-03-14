@@ -5,10 +5,10 @@
 
 cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
-        pub mod handler_riscv;
-        pub use handler_riscv as handler;
-        pub mod context_riscv;
-        pub use context_riscv as context;
+        pub(crate) mod handler_riscv;
+        pub(crate) use handler_riscv as handler;
+        pub(crate) mod context_riscv;
+        pub(crate) use context_riscv as context;
     }
 }
 
@@ -16,7 +16,8 @@ cfg_if! {
 
 // use self mods
 
-pub fn init() {
+#[inline(always)]
+pub(crate) fn init() {
     handler::set_kernel_trap_entry();
     handler::init_timer_interrupt();
 }
