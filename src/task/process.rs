@@ -70,7 +70,7 @@ impl PROCESSOR {
     }
 
     /// switch current process to idle task context
-    fn idle(&self, switched_task_cx_ptr: *mut TaskContext) {
+    fn switch(&self, switched_task_cx_ptr: *mut TaskContext) {
         let mut processor = self.exclusive_access();
         let idle_task_cx_ptr = processor.get_idle_task_ctx_ptr();
         drop(processor);
@@ -111,7 +111,7 @@ impl PROCESSOR {
             TASK_CONTROLLER.add_task(Arc::clone(meta));
             let task_ctx_ptr = meta.task_ctx_ptr() as *mut TaskContext;
             drop(processor);
-            self.idle(task_ctx_ptr);
+            self.switch(task_ctx_ptr);
             Ok(())
         } else {
             Err(KernelError::ProcessHaveNotTask)
@@ -137,7 +137,7 @@ impl PROCESSOR {
             meta.mark_zombie(exit_code);
             drop(processor);
             let mut unused = TaskContext::empty();
-            self.idle(&mut unused as *mut _);
+            self.switch(&mut unused as *mut _);
             Ok(())
         } else {
             Err(KernelError::ProcessHaveNotTask)

@@ -2,9 +2,9 @@
 //! among which the context switching of virtual page tables and tasks is the most complex.
 //! We try to explain the process as briefly as possible with flowcharts and corresponding notes:
 //!
-//!    <-- (0) [`crate::memory::space::KERNEL_SPACE::activate`]
+//!    <-- (0) [`crate::trap::init`]
 //!   |        * Make trap handler disabled
-//!   |        * Make kernel virtual address space avtivate
+//!   |        * Make kernel virtual address space activate
 //!   |
 //!    --> (1) [`crate::task::control::TaskController::run_first_task`]
 //!   |        * Find out the first runable task

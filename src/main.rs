@@ -49,7 +49,7 @@ use core::arch::global_asm;
 // re export commonly used modules or functions
 mod prelude {
     pub(crate) use crate::lang::error::*;
-    pub(crate) use crate::{print, println};
+    pub(crate) use crate::print;
 }
 
 // load assembly file and do init
@@ -79,10 +79,10 @@ fn init() {
     lang::logger::init();
     // make kernel memory heap and page table enable, initialize kernel space
     memory::init();
-    // make trap handler enable
-    trap::init();
     // make process enable
     task::init();
+    // make trap handler enable
+    trap::init();
 }
 
 // will be called in [`./assembly/riscv64/entry.asm`]

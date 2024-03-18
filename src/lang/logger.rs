@@ -11,7 +11,6 @@ use crate::configs;
 use crate::println;
 
 pub(crate) struct KernelLogger;
-
 impl log::Log for KernelLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() <= configs::LOG_LEVEL
