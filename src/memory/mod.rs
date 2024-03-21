@@ -4,7 +4,6 @@
 // self mods
 pub(crate) mod allocator;
 pub(crate) mod area;
-pub(crate) mod buffer;
 pub(crate) mod frame;
 pub(crate) mod heap;
 pub(crate) mod space;

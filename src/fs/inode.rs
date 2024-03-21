@@ -7,13 +7,13 @@
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use frontier_fs::vfs::{FileFlags, FileSystem, Inode};
+use frontier_fs::vfs::{FileSystem, Inode};
 use frontier_fs::OpenFlags;
 use spin::Mutex;
 
 // use self mods
 use super::{File, ROOT_FS};
-use crate::memory::buffer::ByteBuffers;
+use crate::lang::buffer::ByteBuffers;
 use crate::prelude::*;
 
 const PATH_SPLITER: &'static str = "/";

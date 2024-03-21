@@ -3,16 +3,17 @@
 
 // self mods
 pub(crate) mod inode;
+pub(crate) mod pipe;
 pub(crate) mod stdio;
 
 // use other mods
 use alloc::boxed::Box;
-use frontier_fs::vfs::{FileSystem, FS};
 use frontier_fs::block::BLOCK_DEVICE_REGISTER;
+use frontier_fs::vfs::{FileSystem, FS};
 
 // use self mods
 use crate::drivers::blocks::BlockDeviceImpl;
-use crate::memory::buffer::ByteBuffers;
+use crate::lang::buffer::ByteBuffers;
 use crate::prelude::*;
 
 /// Core trait, all structs that implement this feature can be read and written as files.

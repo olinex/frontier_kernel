@@ -3,12 +3,14 @@
 
 // self mods
 
-use alloc::sync::Arc;
 // use other mods
+use alloc::sync::Arc;
 use frontier_fs::OpenFlags;
 
 // use self mods
+use crate::configs::PIPE_RING_BUFFER_LENGTH;
 use crate::fs::inode::ROOT_INODE;
+use crate::fs::pipe::Pipe;
 use crate::prelude::*;
 use crate::task::*;
 
@@ -105,4 +107,19 @@ pub(crate) fn sys_read(fd: usize, buffer: *mut u8, len: usize) -> Result<isize> 
     let file = Arc::clone(file);
     drop(inner);
     Ok(file.read(buffers)? as isize)
+}
+
+#[inline(always)]
+pub(crate) fn sys_pipe(taps: *const [usize; 2]) -> Result<isize> {
+    let task = PROCESSOR.current_task()?;
+    let mut inner = task.inner_exclusive_access();
+    let tap_read = Pipe::new(PIPE_RING_BUFFER_LENGTH);
+    let tap_write = tap_read.drainage().unwrap();
+    let read_fd = inner.allc_fd(Arc::new(tap_read))?;
+    let write_fd = inner.allc_fd(Arc::new(tap_write))?;
+    let current_space = inner.space();
+    let taps = current_space.translated_refmut(taps)?;
+    taps[0] = read_fd;
+    taps[1] = write_fd;
+    Ok(0)
 }

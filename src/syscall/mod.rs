@@ -15,6 +15,7 @@ use crate::prelude::*;
 mod ids {
     pub(crate) const OPEN: usize = 56;
     pub(crate) const CLOSE: usize = 57;
+    pub(crate) const PIPE: usize = 59;
     pub(crate) const READ: usize = 63;
     pub(crate) const WRITE: usize = 64;
     pub(crate) const EXIT: usize = 93;
@@ -32,6 +33,7 @@ pub(crate) fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) 
     match syscall_id {
         ids::OPEN => fs::sys_open(arg1 as *const u8, arg2 as u32),
         ids::CLOSE => fs::sys_close(arg1),
+        ids::PIPE => fs::sys_pipe(arg1 as *const [usize; 2]),
         ids::READ => fs::sys_read(arg1, arg2 as *mut u8, arg3),
         ids::WRITE => fs::sys_write(arg1, arg2 as *const u8, arg3),
         ids::EXIT => process::sys_exit(arg1 as i32),

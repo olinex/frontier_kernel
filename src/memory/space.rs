@@ -16,10 +16,10 @@ use elf::ElfBytes;
 // use self mods
 use super::allocator::LinkedListPageRangeAllocator;
 use super::area::{Area, AreaMapping};
-use super::buffer::ByteBuffers;
 use super::page_table::{PageTable, MAX_TASK_ID};
 use super::{PageTableFlags, PageTableTr};
 use crate::constant::ascii;
+use crate::lang::buffer::ByteBuffers;
 use crate::lang::container::UserPromiseRefCell;
 use crate::sbi::{self, SBIApi};
 use crate::{configs, prelude::*};
@@ -101,7 +101,7 @@ impl Space {
     ///
     /// # Arguments
     /// * va: virtual address
-        fn vpn_ceil(va: usize) -> usize {
+    fn vpn_ceil(va: usize) -> usize {
         // TODO: pa may too big and overflow
         PageTable::get_vpn_with(va + configs::MEMORY_PAGE_BYTE_SIZE - 1)
     }
@@ -110,7 +110,7 @@ impl Space {
     ///
     /// # Arguments
     /// * va: virtual address
-        fn vpn_floor(va: usize) -> usize {
+    fn vpn_floor(va: usize) -> usize {
         PageTable::get_vpn_with(va)
     }
 
@@ -122,7 +122,7 @@ impl Space {
     /// ---------------------------------
     /// |      trap context page        |
     /// ---------------------------------
-        pub(crate) fn trap_ctx_ppn(&self) -> Result<usize> {
+    pub(crate) fn trap_ctx_ppn(&self) -> Result<usize> {
         self.page_table
             .access()
             .translate_ppn_with(*super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER)
@@ -132,12 +132,12 @@ impl Space {
     }
 
     /// Get the memory manager unit token, which is pointed to the space's page table
-        pub(crate) fn mmu_token(&self) -> usize {
+    pub(crate) fn mmu_token(&self) -> usize {
         self.page_table.access().mmu_token()
     }
 
     /// Make current address space activate by wirtting the mmu token to the register
-        fn activate(&self) {
+    fn activate(&self) {
         unsafe { sbi::SBI::write_mmu_token(self.mmu_token()) };
     }
 
@@ -215,7 +215,7 @@ impl Space {
     /// # Returns
     /// * Ok(&Area)
     /// * Err(KernelError::AreaNotExists(start_vpn, end_vpn))
-        pub(crate) fn get_trap_context_area(&self) -> Result<&Area> {
+    pub(crate) fn get_trap_context_area(&self) -> Result<&Area> {
         self.get_area(
             *super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER,
             *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER,
@@ -233,7 +233,11 @@ impl Space {
     ///
     /// # Returns
     /// * Ok(Vec[mut &'static [u8]])
-    pub(crate) fn translated_byte_buffers(&self, ptr: *const u8, len: usize) -> Result<ByteBuffers> {
+    pub(crate) fn translated_byte_buffers(
+        &self,
+        ptr: *const u8,
+        len: usize,
+    ) -> Result<ByteBuffers> {
         let mut start_va = ptr as usize;
         let end_va = start_va + len;
         let mut buffers = vec![];

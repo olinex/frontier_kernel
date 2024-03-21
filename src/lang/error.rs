@@ -13,6 +13,10 @@ use thiserror_no_std::Error;
 
 #[derive(Error, EnumGroup, Debug)]
 pub(crate) enum KernelError {
+    #[groups(base)]
+    #[error("[kernel] End of Buffer")]
+    EOB,
+
     #[groups(syscall)]
     #[error("[kernel] Invalid syscall id: {0}")]
     InvaidSyscallId(usize),

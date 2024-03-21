@@ -10,30 +10,31 @@ use spin::Mutex;
 // use self mods
 use super::File;
 use crate::constant::ascii;
-use crate::memory::buffer::ByteBuffers;
+use crate::lang::buffer::ByteBuffers;
 use crate::prelude::*;
 use crate::sbi::{SBIApi, SBI};
 use crate::task::suspend_current_and_run_other_task;
 
 /// The standard input queue of the kernel system.
-struct Stdin {inner: Mutex<()>}
+struct Stdin {
+    inner: Mutex<()>,
+}
 impl File for Stdin {
     fn read(&self, buffers: ByteBuffers) -> Result<u64> {
         let lock = self.inner.lock();
-        let mut count = 0;
-        'outer: for buffer in buffers.into_slices() {
-            let mut offset = 0;
-            while offset < buffer.len() {
-                if let Some(c) = SBI::console_getchar() {
-                    if c == ascii::NULL {
-                        break 'outer;
-                    }
-                    buffer[offset] = c;
-                    count += 1;
-                    offset += 1;
-                } else {
-                    suspend_current_and_run_other_task()?;
+        let length = buffers.len() as u64;
+        let mut count: u64 = 0;
+        let mut iterator = buffers.into_iter();
+        while count < length {
+            if let Some(c) = SBI::console_getchar() {
+                if c == ascii::NULL {
+                    drop(lock);
+                    return Ok(count);
                 }
+                iterator.next_mut(c)?;
+                count += 1;
+            } else {
+                suspend_current_and_run_other_task()?;
             }
         }
         drop(lock);
@@ -46,21 +47,21 @@ impl File for Stdin {
 }
 
 /// The standard ouput queue of the kernel system.
-struct Stdout {inner: Mutex<()>}
+struct Stdout {
+    inner: Mutex<()>,
+}
 impl File for Stdout {
     fn read(&self, _: ByteBuffers) -> Result<u64> {
-        panic!("Cannot read from stdout!") 
+        panic!("Cannot read from stdout!")
     }
 
     fn write(&self, buffers: ByteBuffers) -> Result<u64> {
         let lock = self.inner.lock();
-        let mut count = 0u64;
-        for buffer in buffers.into_slices() {
-            print!("{}", core::str::from_utf8(buffer).unwrap());
-            count += buffer.len() as u64;
-        }
+        let length = buffers.len() as u64;
+        let string = buffers.into_utf8_str();
+        print!("{}", string);
         drop(lock);
-        Ok(count)
+        Ok(length)
     }
 }
 

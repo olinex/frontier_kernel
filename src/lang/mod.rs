@@ -3,6 +3,7 @@
 
 // self mods
 // pub(crate) mod bitmap;
+pub(crate) mod buffer;
 pub(crate) mod console;
 pub(crate) mod container;
 pub(crate) mod error;

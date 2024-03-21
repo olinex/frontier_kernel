@@ -267,6 +267,7 @@ impl TaskMeta {
     /// # Return
     /// Ok(Arc<TaskMeta>)
     pub(crate) fn fork(self: &Arc<Self>) -> Result<Arc<Self>> {
+        let inner = self.inner_access();
         let name = self.name().clone();
         let tracker = PID_ALLOCATOR.alloc()?;
         let pid = tracker.pid();
@@ -276,6 +277,15 @@ impl TaskMeta {
         let trap_ctx_ppn = space.trap_ctx_ppn()?;
         let mut task_ctx = TaskContext::empty();
         task_ctx.goto_trap_return(kernel_stack_top_va);
+        let mut new_fd_table = Vec::new();
+        for wrapper in inner.fd_table.iter() {
+            if let Some(fd) = wrapper {
+                new_fd_table.push(Some(Arc::clone(fd)));
+            } else {
+                new_fd_table.push(None);
+            }
+        }
+        drop(inner);
         let inner = TaskMetaInner {
             status: TaskStatus::Ready,
             space,
@@ -283,11 +293,7 @@ impl TaskMeta {
             parent: None,
             childrens: vec![],
             exit_code: 0,
-            fd_table: vec![
-                Some(Arc::clone(&STDIN)),
-                Some(Arc::clone(&STDOUT)),
-                Some(Arc::clone(&STDOUT)),
-            ],
+            fd_table: new_fd_table,
         };
         debug!(
             "fork task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}",

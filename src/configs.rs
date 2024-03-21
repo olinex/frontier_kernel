@@ -25,6 +25,7 @@ pub(crate) const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADD
 pub(crate) const TICKS_PER_SEC: usize = 100;
 pub(crate) const LOG_LEVEL: Level = Level::Debug;
 pub(crate) const MAX_FD_COUNT: usize = 65536;
+pub(crate) const PIPE_RING_BUFFER_LENGTH: usize = 32;
 
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {
