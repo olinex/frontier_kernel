@@ -24,6 +24,10 @@ pub(crate) struct OSInodeInner {
     inode: Arc<Inode>,
 }
 impl OSInodeInner {
+    /// Check the permissions of the file to see if the data is allowed to be read.
+    ///
+    /// - Errors
+    ///     - FileMustBeReadable(inode bitmap index)
     #[inline(always)]
     fn must_be_readable(&self) -> Result<()> {
         if self.inode.flags().is_readable() {
@@ -35,6 +39,10 @@ impl OSInodeInner {
         }
     }
 
+    /// Check the permissions of the file to see if the data is allowed to be write.
+    ///
+    /// - Errors
+    ///     - FileMustBeWritable(inode bitmap index)
     #[inline(always)]
     fn must_be_writable(&self) -> Result<()> {
         if self.inode.flags().is_writable() {
@@ -46,7 +54,12 @@ impl OSInodeInner {
         }
     }
 
+    /// Check the permissions of the file to see if the code is allowed to be execute.
+    ///
+    /// - Errors
+    ///     - FileMustBeExecutable(inode bitmap index)
     #[inline(always)]
+    #[allow(dead_code)]
     fn must_be_executable(&self) -> Result<()> {
         if self.inode.flags().is_executable() {
             Ok(())
@@ -60,15 +73,16 @@ impl OSInodeInner {
 
 /// The Inode object for direct read/write by the operating system wraps the read-write inode and read-only permission identifiers
 pub(crate) struct OSInode {
+    #[allow(dead_code)]
     flags: OpenFlags,
     inner: Mutex<OSInodeInner>,
 }
 impl OSInode {
     /// Create a new operation system inode obejct.
     ///
-    /// # Arguments
-    /// * flags: the permission mode for the operation of the inode
-    /// * inode: the inode object return by file system
+    /// - Arguments
+    ///     - flags: the permission mode for the operation of the inode
+    ///     - inode: the inode object return by file system
     pub(crate) fn new(flags: OpenFlags, inode: Arc<Inode>) -> Self {
         Self {
             flags,
@@ -78,17 +92,15 @@ impl OSInode {
 
     /// List all the child inode's name as String
     ///
-    /// # Returns
-    /// * Ok(Vec<name>)
-    /// * Err(
-    ///     FileSystemError(
-    ///         InodeMustBeDirectory(bitmap index) |
-    ///         DataOutOfBounds |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code)
-    ///     )
-    ///     FileMustBeReadable(bitmap index)
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeReadable(inode bitmap index)
     /// )
+    #[allow(dead_code)]
     fn ls(&self) -> Result<Vec<String>> {
         let inner = self.inner.lock();
         inner.must_be_readable()?;
@@ -97,26 +109,22 @@ impl OSInode {
 
     /// Get or create child os inode from this current os inode.
     ///
-    /// # Arguments
-    /// * name: the name of child os inode
-    /// * flags: the permission mode for the operation of the inode
+    /// - Arguments
+    ///     - name: the name of child os inode
+    ///     - flags: the permission mode for the operation of the inode
     ///
-    /// # Returns
-    /// * Ok(Arc<child os inode>)
-    /// * Err(
-    ///     FileSystemError(
-    ///         InodeMustBeDirectory(bitmap index) |
-    ///         DataOutOfBounds |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code)
-    ///         DuplicatedFname(name, inode bitmap index) |
-    ///         BitmapExhausted(start_block_id) |
-    ///         BitmapIndexDeallocated(bitmap_index) |
-    ///         RawDeviceError(error code)
-    ///     ) |
-    ///     FileMustBeReadable(bitmap index) |
-    ///     FileDoesNotExists(name)
-    /// )
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error cod
+    ///         - DuplicatedFname(name, inode bitmap index)
+    ///         - BitmapExhausted(start_block_id)
+    ///         - BitmapIndexDeallocated(bitmap_index)
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeReadable(inode bitmap index)
+    ///     - FileDoesNotExists(name)
     fn get_child(&self, name: &str, flags: OpenFlags) -> Result<Arc<OSInode>> {
         let inner = self.inner.lock();
         inner.must_be_readable()?;
@@ -144,24 +152,21 @@ impl OSInode {
 
     /// Create a os inode as child into current inode
     ///
-    /// # Arguments
-    /// * name: the name of child os inode
-    /// * flags: the permission mode for the operation of the inode
+    /// - Arguments
+    ///     - name: the name of child os inode
+    ///     - flags: the permission mode for the operation of the inode
     ///
-    /// # Returns
-    /// * Ok(Arc<child os inode>)
-    /// * Err(
-    ///     FileSystemError(
-    ///         InodeMustBeDirectory(bitmap index) |
-    ///         DuplicatedFname(name, inode bitmap index) |
-    ///         BitmapExhausted(start_block_id) |
-    ///         BitmapIndexDeallocated(bitmap_index) |
-    ///         DataOutOfBounds |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code)
-    ///     ) |
-    ///     FileMustBeWritable(bitmap index)
-    /// )
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DuplicatedFname(name, inode bitmap index)
+    ///         - BitmapExhausted(start_block_id)
+    ///         - BitmapIndexDeallocated(bitmap_index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeWritable(inode bitmap index)
+    #[allow(dead_code)]
     fn create_child(&self, name: &str, flags: OpenFlags) -> Result<Arc<OSInode>> {
         let inner = self.inner.lock();
         inner.must_be_writable()?;
@@ -177,23 +182,20 @@ impl OSInode {
 
     /// Remove child os inode from current os inode
     ///
-    /// # Arguments
-    /// * name: the name of child os inode
+    /// - Arguments
+    ///     - name: the name of child os inode
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(
-    ///     FileSystemError(
-    ///         InodeMustBeDirectory(bitmap index) |
-    ///         FnameDoesNotExist(name, inode bitmap index) |
-    ///         DataOutOfBounds |
-    ///         BitmapIndexDeallocated(bitmap_index) |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code) |
-    ///         DeleteNonEmptyDirectory(name, inode bitmap index)    
-    ///     ) |
-    ///     FileMustBeWritable(bitmap index)
-    /// )
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DuplicatedFname(name, inode bitmap index)
+    ///         - BitmapExhausted(start_block_id)
+    ///         - BitmapIndexDeallocated(bitmap_index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeWritable(inode bitmap index)
+    #[allow(dead_code)]
     fn remove_child(&self, name: &str) -> Result<()> {
         let inner = self.inner.lock();
         inner.must_be_writable()?;
@@ -203,16 +205,12 @@ impl OSInode {
 
     /// Read all bytes from current os inode
     ///
-    /// # Returns
-    /// * Ok(Vec<bytes>)
-    /// * Err(
-    ///     FileSystemError(
-    ///         DataOutOfBounds |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code)
-    ///     ) |
-    ///     FileMustBeReadable(bitmap index)
-    /// )
+    /// - Errors
+    ///     - FileSystemError
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeReadable(bitmap index)
     pub(crate) fn read_all(&self) -> Result<Vec<u8>> {
         let inner = self.inner.lock();
         inner.must_be_readable()?;
@@ -220,6 +218,13 @@ impl OSInode {
     }
 }
 impl File for OSInode {
+    /// See [`crate::fs::File`]
+    ///
+    /// - Errors
+    ///     - FileMustBeReadable(inode bitmap index)
+    ///     - DataOutOfBounds
+    ///     - NoDroptableBlockCache
+    ///     - RawDeviceError(error code)
     fn read(&self, buffers: ByteBuffers) -> Result<u64> {
         let mut inner = self.inner.lock();
         inner.must_be_readable()?;
@@ -235,6 +240,13 @@ impl File for OSInode {
         Ok(total_read_size)
     }
 
+    /// See [`crate::fs::File`]
+    ///
+    /// - Errors
+    ///     - FileMustBeWritable(inode bitmap index)
+    ///     - DataOutOfBounds
+    ///     - NoDroptableBlockCache
+    ///     - RawDeviceError(error code)
     fn write(&self, buffers: ByteBuffers) -> Result<u64> {
         let mut inner = self.inner.lock();
         inner.must_be_writable()?;
@@ -259,26 +271,22 @@ lazy_static! {
 impl ROOT_INODE {
     /// Find the os inode in the file system by the path, and the path is split by "/".
     ///
-    /// # Arguments
-    /// * path: the path of the os inode, split by "/"
-    /// * flags: once the os inode is found, the flags that affects subsequent behavior
+    /// - Arguments
+    ///     - path: the path of the os inode, split by "/"
+    ///     - flags: once the os inode is found, the flags that affects subsequent behavior
     ///
-    /// # Returns
-    /// * Ok(Arc<OSInode>)
-    /// * Err(
-    ///     FileSystemError(
-    ///         InodeMustBeDirectory(bitmap index) |
-    ///         DataOutOfBounds |
-    ///         NoDroptableBlockCache |
-    ///         RawDeviceError(error code)
-    ///         DuplicatedFname(name, inode bitmap index) |
-    ///         BitmapExhausted(start_block_id) |
-    ///         BitmapIndexDeallocated(bitmap_index) |
-    ///         RawDeviceError(error code)
-    ///     ) |
-    ///     FileMustBeReadable(bitmap index) |
-    ///     FileDoesNotExists(name)
-    /// )
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///         - DuplicatedFname(name, inode bitmap index)
+    ///         - BitmapExhausted(start_block_id)
+    ///         - BitmapIndexDeallocated(bitmap_index)
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeReadable(bitmap index)
+    ///     - FileDoesNotExists(name)
     pub(crate) fn find(&self, path: &str, flags: OpenFlags) -> Result<Arc<OSInode>> {
         let mut parent: Arc<OSInode> = Arc::clone(self);
         let names: Vec<&str> = path.split(PATH_SPLITER).collect();

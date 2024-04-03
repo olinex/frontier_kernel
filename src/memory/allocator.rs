@@ -37,9 +37,9 @@ pub(crate) struct PageNode {
 }
 impl PageNode {
     /// Create a Create a separate node
-    /// # Arguments
-    /// * used: mark the interval as occupied, default is false
-    /// * vpn: the virtual memory page number
+    /// - Arguments
+    ///     - used: mark the interval as occupied, default is false
+    ///     - vpn: the virtual memory page number
     fn new(used: bool, vpn: usize) -> Self {
         Self {
             used,
@@ -62,9 +62,9 @@ impl PageNode {
     ///       node1(prev: ., next: 4)     node2(prev: ., next: .)     node3(prev: ., next: .)     node4(prev: 3, next: .)
     /// step4     |------------------------------------------link-------------------------------------------->|
     ///       node1(prev: ., next: 4)     node2(prev: ., next: .)     node3(prev: ., next: .)     node4(prev: 1, next: .)
-    /// # Arguments
-    /// * prev_page_node: the page node which will ahead of the next node
-    /// * next_page_node: the page node which will behind the previous node
+    /// - Arguments
+    ///     - prev_page_node: the page node which will ahead of the next node
+    ///     - next_page_node: the page node which will behind the previous node
     fn link(
         prev_page_node: &Arc<UserPromiseRefCell<PageNode>>,
         next_page_node: &Arc<UserPromiseRefCell<PageNode>>,
@@ -82,8 +82,8 @@ impl PageNode {
     /// Check and merge the two same interval of the status of available.
     /// If current not has previous node and next node
     /// This function is called after some page nodes insert into the linked list
-    /// # Arguments
-    /// * node: the current page node which will be merged into the previous node
+    /// - Arguments
+    ///     - node: the current page node which will be merged into the previous node
     fn merge_range(page_node: Arc<UserPromiseRefCell<PageNode>>) {
         let page_node_borrow = page_node.access();
         if let (Some(prev_page_node), Some(next_page_node)) =
@@ -105,9 +105,9 @@ pub(crate) struct LinkedListPageRangeAllocator {
 }
 impl LinkedListPageRangeAllocator {
     /// Create a new page range allocation manager
-    /// # Arguments
-    /// * start_vpn: the first virtual memory page number
-    /// * end_vpn: the last virtual memory page number, which will not be allocated
+    /// - Arguments
+    ///     - start_vpn: the first virtual memory page number
+    ///     - end_vpn: the last virtual memory page number, which will not be allocated
     pub(crate) fn new(start_vpn: usize, end_vpn: usize) -> Self {
         assert!(start_vpn < end_vpn);
         let start_page_node =
@@ -121,13 +121,13 @@ impl LinkedListPageRangeAllocator {
     }
 
     /// Find the interval which is contain the given page interval.
-    /// # Arguments
-    /// * start_vpn: the first virtual memory page number
-    /// * end_vpn: the last virtual memory page number, which will not be allocated
+    /// - Arguments
+    ///     - start_vpn: the first virtual memory page number
+    ///     - end_vpn: the last virtual memory page number, which will not be allocated
     ///
-    /// # Returns
-    /// * None: if there was no contiguous interval that contains the given inerval
-    /// * Some((start_page_node, end_page_node))
+    /// - Returns
+    ///     - None: if there was no contiguous interval that contains the given inerval
+    ///     - Some((start_page_node, end_page_node))
     fn find_range_nodes(
         &self,
         start_vpn: usize,
@@ -158,13 +158,13 @@ impl LinkedListPageRangeAllocator {
     }
 
     /// Change specified interval's available status.
-    /// # Arguments
-    /// * start_vpn: the first virtual memory page number
-    /// * end_vpn: the last virtual memory page number, which will not be allocated
+    /// - Arguments
+    ///     - start_vpn: the first virtual memory page number
+    ///     - end_vpn: the last virtual memory page number, which will not be allocated
     ///
-    /// # Returns
-    /// * Some(()): change succeeded
-    /// * None: change failed
+    /// - Returns
+    ///     - Some(()): change succeeded
+    ///     - None: change failed
     fn change(&self, start_vpn: usize, end_vpn: usize, used: bool) -> Option<()> {
         if start_vpn >= end_vpn {
             return None;
@@ -221,25 +221,25 @@ impl LinkedListPageRangeAllocator {
     }
 
     /// Alloc virtual page interval.
-    /// # Arguments
-    /// * start_vpn: the first virtual memory page number
-    /// * end_vpn: the last virtual memory page number, which will not be allocated
+    /// - Arguments
+    ///     - start_vpn: the first virtual memory page number
+    ///     - end_vpn: the last virtual memory page number, which will not be allocated
     ///
-    /// # Returns
-    /// * Some(()): change succeeded
-    /// * None: change failed
+    /// - Returns
+    ///     - Some(()): change succeeded
+    ///     - None: change failed
         pub(crate) fn alloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
         self.change(start_vpn, end_vpn, true)
     }
 
     /// Dealloc virtual page interval.
-    /// # Arguments
-    /// * start_vpn: the first virtual memory page number
-    /// * end_vpn: the last virtual memory page number, which will not be allocated
+    /// - Arguments
+    ///     - start_vpn: the first virtual memory page number
+    ///     - end_vpn: the last virtual memory page number, which will not be allocated
     ///
-    /// # Returns
-    /// * Some(()): change succeeded
-    /// * None: change failed
+    /// - Returns
+    ///     - Some(()): change succeeded
+    ///     - None: change failed
         pub(crate) fn dealloc(&self, start_vpn: usize, end_vpn: usize) -> Option<()> {
         self.change(start_vpn, end_vpn, false)
     }
@@ -279,20 +279,19 @@ impl BTreeSetFrameAllocator {
 
     /// Initialize a new BTreeSetFrameAllocator
     /// 
-    /// # Arguments
-    /// * current_ppn: the current physical page number which will be used in next time allocating
-    /// * end_ppn: the end physical page number which will not be used, it must greater than current
+    /// - Arguments
+    ///     - current_ppn: the current physical page number which will be used in next time allocating
+    ///     - end_ppn: the end physical page number which will not be used, it must greater than current
     pub(crate) fn init(&mut self, current_ppn: usize, end_ppn: usize) {
         assert!(current_ppn < end_ppn);
         self.current_ppn = current_ppn;
         self.end_ppn = end_ppn;
     }
 
-    /// Alloc a new frame
+    /// Alloc a new frame and return new physical page number
     /// 
-    /// # Returns
-    /// * Ok(usize): the new physical page number
-    /// * Err(KernelError::FrameExhausted): if no other frame can be allocated
+    /// - Errors
+    ///     - FrameExhausted
     pub(crate) fn alloc(&mut self) -> Result<usize> {
         if let Some(ppn) = self.recycled.pop_first() {
             Ok(ppn)
@@ -309,9 +308,8 @@ impl BTreeSetFrameAllocator {
 
     /// Dealloc a frame
     /// 
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::FrameNotDeallocable(ppn))
+    /// - Errors
+    ///     - FrameNotDeallocable(ppn)
     pub(crate) fn dealloc(&mut self, ppn: usize) -> Result<()> {
         if ppn >= self.current_ppn || !self.recycled.insert(ppn) {
             Err(KernelError::FrameNotDeallocable(ppn))

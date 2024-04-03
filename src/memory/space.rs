@@ -18,7 +18,7 @@ use super::allocator::LinkedListPageRangeAllocator;
 use super::area::{Area, AreaMapping};
 use super::page_table::{PageTable, MAX_TASK_ID};
 use super::{PageTableFlags, PageTableTr};
-use crate::constant::ascii;
+use crate::constant::charater;
 use crate::lang::buffer::ByteBuffers;
 use crate::lang::container::UserPromiseRefCell;
 use crate::sbi::{self, SBIApi};
@@ -55,11 +55,11 @@ impl Space {
     /// |          guard page           |
     /// ---------------------------------
     ///
-    /// # Arguments
-    /// * asid: the address space unique id
+    /// - Arguments
+    ///     - asid: the address space unique id
     ///
-    /// # Returns
-    /// * (start virtual page number, end virtual page number)
+    /// - Returns
+    ///     - (start virtual page number, end virtual page number)
     pub(crate) fn get_kernel_task_stack_vpn_range(asid: usize) -> (usize, usize) {
         let max_vpn = *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER;
         let stack_page_count = Self::vpn_ceil(configs::KERNEL_TASK_STACK_BYTE_SIZE);
@@ -86,11 +86,11 @@ impl Space {
     /// ---------------------------------
     /// |              ...              |
     /// --------------------------------- <- MIN virtual address
-    /// # Arguments
-    /// * end_va: the virtual address of the last code or data of task
+    /// - Arguments
+    ///     - end_va: the virtual address of the last code or data of task
     ///
-    /// # Returns
-    /// * (start virtual page number, end virtual page number)
+    /// - Returns
+    ///     - (start virtual page number, end virtual page number)
     pub(crate) fn get_user_task_stack_vpn_range(end_va: usize) -> (usize, usize) {
         let start_va = end_va + configs::KERNEL_GUARD_PAGE_COUNT * configs::MEMORY_PAGE_BYTE_SIZE;
         let end_va = start_va + configs::USER_TASK_STACK_BYTE_SIZE;
@@ -99,8 +99,8 @@ impl Space {
 
     /// Get the virtual page number which is calculated by ceil divide the virtual address
     ///
-    /// # Arguments
-    /// * va: virtual address
+    /// - Arguments
+    ///     - va: virtual address
     fn vpn_ceil(va: usize) -> usize {
         // TODO: pa may too big and overflow
         PageTable::get_vpn_with(va + configs::MEMORY_PAGE_BYTE_SIZE - 1)
@@ -108,8 +108,8 @@ impl Space {
 
     /// Get the virtual page number which is calculated by floor divide the virtual address
     ///
-    /// # Arguments
-    /// * va: virtual address
+    /// - Arguments
+    ///     - va: virtual address
     fn vpn_floor(va: usize) -> usize {
         PageTable::get_vpn_with(va)
     }
@@ -122,6 +122,9 @@ impl Space {
     /// ---------------------------------
     /// |      trap context page        |
     /// ---------------------------------
+    /// 
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn trap_ctx_ppn(&self) -> Result<usize> {
         self.page_table
             .access()
@@ -142,6 +145,9 @@ impl Space {
     }
 
     /// Create a new space without any area and frame except the root page mapper frame
+    /// 
+    /// - Errors
+    ///     - FrameExhausted
     fn new_bare(asid: usize) -> Result<Self> {
         let page_table = PageTable::new(asid)?;
         let page_range_allocator =
@@ -156,14 +162,14 @@ impl Space {
     /// Push area into space and write data to the area,
     /// the area must belongs to the space
     ///
-    /// # Arguments
-    /// * area: the abstract structure belongs to the current space
-    /// * offset: the first index of the data which will be writted into area
-    /// * data: the binary data which will be writted into area
+    /// - Arguments
+    ///     - area: the abstract structure belongs to the current space
+    ///     - offset: the first index of the data which will be writted into area
+    ///     - data: the binary data which will be writted into area
     ///
-    /// # Returns
-    /// Ok(())
-    /// Err(KernelError::AreaAllocFailed(start vpn, end vpn))
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
+    ///     - AreaAllocFailed(start vpn, end vpn)
     fn push(&mut self, mut area: Area, offset: usize, data: Option<&[u8]>) -> Result<()> {
         // FIXME: Write page action and insert area action must be synchronized
         if let Some(data) = data {
@@ -179,13 +185,12 @@ impl Space {
 
     /// Pop area from space
     /// If area is removed, the frame and page range will be deallocated
-    /// # Arguments
-    /// * start_vpn: the start virtual page number of the area
-    /// * end_vpn: the end virtual page number of the area which is not include in area
+    /// - Arguments
+    ///     - start_vpn: the start virtual page number of the area
+    ///     - end_vpn: the end virtual page number of the area which is not include in area
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::AreaDeallocFailed(start vpn, end vpn))
+    /// - Errors
+    ///     - AreaDeallocFailed(start vpn, end vpn)
     fn pop(&mut self, start_vpn: usize, end_vpn: usize) -> Result<()> {
         if let Some(_) = self.area_set.remove(&(start_vpn, end_vpn)) {
             Ok(())
@@ -195,13 +200,12 @@ impl Space {
     }
 
     /// Get the area from the space which have been allocated
-    /// # Arguments
-    /// * start_vpn: the start virtual page number of the area
-    /// * end_vpn: the end virtual page number of the area which is not include in area
+    /// - Arguments
+    ///     - start_vpn: the start virtual page number of the area
+    ///     - end_vpn: the end virtual page number of the area which is not include in area
     ///
-    /// # Returns
-    /// * Ok(&Area)
-    /// * Err(KernelError::AreaNotExists(start_vpn, end_vpn))
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
     fn get_area(&self, start_vpn: usize, end_vpn: usize) -> Result<&Area> {
         if let Some(area) = self.area_set.get(&(start_vpn, end_vpn)) {
             Ok(area)
@@ -212,9 +216,8 @@ impl Space {
 
     /// Get the area which trap context was stored in it.
     ///
-    /// # Returns
-    /// * Ok(&Area)
-    /// * Err(KernelError::AreaNotExists(start_vpn, end_vpn))
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
     pub(crate) fn get_trap_context_area(&self) -> Result<&Area> {
         self.get_area(
             *super::TRAP_CONTEXT_VIRTUAL_PAGE_NUMBER,
@@ -227,12 +230,12 @@ impl Space {
     /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
     /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
     ///
-    /// # Arguments
-    /// * ptr: the pointer of the byte slice
-    /// * len: the length of the byte slice
+    /// - Arguments
+    ///     - ptr: the pointer of the byte slice
+    ///     - len: the length of the byte slice
     ///
-    /// # Returns
-    /// * Ok(Vec[mut &'static [u8]])
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn translated_byte_buffers(
         &self,
         ptr: *const u8,
@@ -264,11 +267,11 @@ impl Space {
     /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
     /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
     ///
-    /// # Arguments
-    /// * ptr: the pointer of the string
+    /// - Arguments
+    ///     - ptr: the pointer of the string
     ///
-    /// # Returns
-    /// Ok(String)
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn translated_string(&self, ptr: *const u8) -> Result<String> {
         let mut start_va = ptr as usize;
         let mut string = String::new();
@@ -281,7 +284,7 @@ impl Space {
             let buffer = page_table.get_byte_array(Self::vpn_floor(tmp_start_va))?;
             for offset in tmp_start_offset..configs::MEMORY_PAGE_BYTE_SIZE {
                 let byte = buffer[offset];
-                if byte == ascii::NULL {
+                if byte == charater::NULL as u8 {
                     break 'outer;
                 }
                 string.push(byte as char);
@@ -296,11 +299,11 @@ impl Space {
     /// To reduce memory copies, each byte buffers in different frame will be load as bytes slice pointer.
     /// Please be carefully!!! This method does not guarantee the lifetime of the returned byte buffers.
     ///
-    /// # Arguments
-    /// * ptr: the pointer of generate type T
+    /// - Arguments
+    ///     - ptr: the pointer of generate type T
     ///
-    /// # Returns
-    /// Ok(&mut T)
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn translated_refmut<T>(&self, ptr: *const T) -> Result<&mut T> {
         let vpn = Self::vpn_floor(ptr as usize);
         let offset = PageTable::get_va_offset(ptr as usize);
@@ -309,6 +312,14 @@ impl Space {
             .as_kernel_mut(vpn, offset)
     }
 
+    /// Translate virtual address to physcial address according to current space
+    ///
+    /// - Arguments
+    ///     - va: virtual address
+    ///
+    /// - Returns
+    ///     - Some(physical address)
+    ///     - None
     pub(crate) fn translate_pa(&self, va: usize) -> Option<usize> {
         let vpn = Self::vpn_floor(va);
         let offset = PageTable::get_va_offset(va);
@@ -336,14 +347,13 @@ impl Space {
     /// |              ...              |
     /// --------------------------------- <- MIN virtual address
     ///
-    /// # Returns
-    /// * Ok(())
+    /// - Errors
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
     fn map_trampoline(&self) -> Result<()> {
-        self.page_table.exclusive_access().map_without_alloc(
-            *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER,
-            *super::TRAMPOLINE_PHYSICAL_PAGE_NUMBER,
-            PageTableFlags::RX,
-        )?;
         debug!(
             "[{:#018x}, {:#018x}] -> [{:#018x}, {:#018x}): mapped trampoline segment address range",
             PageTable::cal_base_va_with(*super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER),
@@ -351,7 +361,11 @@ impl Space {
             PageTable::cal_base_va_with(*super::TRAMPOLINE_PHYSICAL_PAGE_NUMBER),
             PageTable::cal_base_va_with(*super::TRAMPOLINE_PHYSICAL_PAGE_NUMBER + 1),
         );
-        Ok(())
+        self.page_table.exclusive_access().map_without_alloc(
+            *super::TRAMPOLINE_VIRTUAL_PAGE_NUMBER,
+            *super::TRAMPOLINE_PHYSICAL_PAGE_NUMBER,
+            PageTableFlags::RX,
+        )
     }
 
     /// When we enable the MMU virtual memory mechanism,
@@ -383,8 +397,16 @@ impl Space {
     ///                    |              ...              |
     ///                    --------------------------------- <- MIN virtual address
     ///
-    /// # Returns
-    /// * Ok(kernel space)
+    /// - Errors
+    ///     - FrameExhausted
+    ///     - VPNNotMapped(vpn) 
+    ///     - AreaAllocFailed(start vpn, end vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn) 
+    ///     - VPNAlreadyMapped(vpn) 
+    ///     - InvaidPageTablePerm(flags) 
+    ///     - AllocFullPageMapper(ppn) 
+    ///     - PPNAlreadyMapped(ppn) 
+    ///     - PPNNotMapped(ppn)
     fn new_kernel() -> Result<Self> {
         // create a new bare space
         let mut space = Self::new_bare(MAX_TASK_ID)?;
@@ -559,8 +581,8 @@ impl KERNEL_SPACE {
     /// X = eXecutable
     /// V = Valid
     ///
-    /// # Arguments
-    /// * bits: the elf data flags in bit format
+    /// - Arguments
+    ///     - bits: the elf data flags in bit format
     fn convert_flags(bits: u32) -> PageTableFlags {
         let mut flags = PageTableFlags::EMPTY;
         if bits & abi::PF_R != 0 {
@@ -598,12 +620,28 @@ impl KERNEL_SPACE {
     /// |              ...              |
     /// --------------------------------- <- MIN virtual address
     ///
-    /// # Arguments
-    /// * asid: the unique id of the address space
-    /// * data: the elf binary byte data sclice
+    /// - Arguments
+    ///     - asid: the unique id of the address space
+    ///     - data: the elf binary byte data sclice
+    /// 
+    /// - Returns
+    ///     - Self
+    ///     - user_stack_top_va
+    ///     - elf_entry_point
     ///
-    /// # Returns
-    /// * Ok((Self, user_stack_top_va, kernel_stack_top_va, elf_entry_point))
+    /// - Errors
+    ///     - ParseElfError
+    ///     - InvalidHeadlessTask
+    ///     - UnloadableTask
+    ///     - FrameExhausted
+    ///     - AreaAllocFailed(start_vpn, end_vpn) 
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn) 
+    ///     - VPNAlreadyMapped(vpn) 
+    ///     - InvaidPageTablePerm(flags) 
+    ///     - FrameExhausted 
+    ///     - AllocFullPageMapper(ppn) 
+    ///     - PPNAlreadyMapped(ppn) 
+    ///     - PPNNotMapped(ppn) 
     pub(crate) fn new_user_from_elf(asid: usize, data: &[u8]) -> Result<(Space, usize, usize)> {
         let elf_bytes = ElfBytes::<AnyEndian>::minimal_parse(data)?;
         let program_headers: Vec<ProgramHeader> = elf_bytes
@@ -693,12 +731,20 @@ impl KERNEL_SPACE {
     /// which will copy all of the bytes from other user space areas into new user space.
     /// Because if we want to fork a new task from origin, we need to copy all of the memory from it.
     ///
-    /// # Arguments
-    /// * asid: the address space unique id
-    /// * another: the reference to the other user space
+    /// - Arguments
+    ///     - asid: the address space unique id
+    ///     - another: the reference to the other user space
     ///
-    /// # Returns
-    /// * Ok(Space)
+    /// - Errors
+    ///     - AreaAllocFailed(start_vpn, end_vpn) 
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn) 
+    ///     - VPNAlreadyMapped(vpn) 
+    ///     - InvaidPageTablePerm(flags) 
+    ///     - FrameExhausted 
+    ///     - AllocFullPageMapper(ppn) 
+    ///     - PPNAlreadyMapped(ppn) 
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn new_user_from_another(asid: usize, another: &Space) -> Result<Space> {
         let mut space = Space::new_bare(asid)?;
         for ((start_vpn, end_vpn), other_area) in another.area_set.iter() {
@@ -717,12 +763,21 @@ impl KERNEL_SPACE {
 
     /// Each time creating a new task's space, we should map a task stack in kernel space at the same time.
     /// the range of the virtual address in kernel space is related to the task's unique id.
+    /// Return the kernel stack top vpn.
     ///
-    /// # Arguments
-    /// * asid: address space unique id
+    /// - Arguments
+    ///     - asid: address space unique id
     ///
-    /// # Returns
-    /// * Ok(kernel stack top vpn)
+    /// - Errors
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn map_kernel_task_stack(&self, asid: usize) -> Result<usize> {
         let (kernel_stack_bottom_vpn, kernel_stack_top_vpn) =
             Space::get_kernel_task_stack_vpn_range(asid);
@@ -748,11 +803,11 @@ impl KERNEL_SPACE {
 
     /// Each time we destroy task, we should unmap the task stack in kernel space at the same time.
     ///
-    /// # Arguments
-    /// * asid: address space unique id
+    /// - Arguments
+    ///     - asid: address space unique id
     ///
-    /// # Returns
-    /// * Ok(())
+    /// - Errors
+    ///     - 
     pub(crate) fn unmap_kernel_task_stack(&self, asid: usize) -> Result<()> {
         let (start_vpn, end_vpn) = Space::get_kernel_task_stack_vpn_range(asid);
         self.exclusive_access().pop(start_vpn, end_vpn)?;

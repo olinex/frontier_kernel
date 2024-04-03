@@ -21,15 +21,15 @@ pub(crate) struct BitMap {
 }
 impl BitMap {
     /// Get the Quotient of the index which will be divided by 8
-    /// # Arguments
-    /// * index: The index of the bit, starting from 0
+    /// - Arguments
+    ///     - index: The index of the bit, starting from 0
     pub(crate) fn offset(index: usize) -> usize {
         index / BLOCK_BIT_SIZE
     }
 
     /// Get the Remainder of the index which will be divided by 8
-    /// # Arguments
-    /// * index: The index of the bit, starting from 0
+    /// - Arguments
+    ///     - index: The index of the bit, starting from 0
     pub(crate) fn limit(index: usize) -> usize {
         index % BLOCK_BIT_SIZE
     }
@@ -40,8 +40,8 @@ impl BitMap {
     }
 
     /// Create a new BitMap according the length
-    /// # Arguments
-    /// * length: The count of the bits
+    /// - Arguments
+    ///     - length: The count of the bits
     pub(crate) fn new(length: usize) -> Self {
         let map: Vec<u8> = vec![0; (length + (BLOCK_BIT_SIZE - 1)) / 8];
         Self {
@@ -51,12 +51,14 @@ impl BitMap {
     }
 
     /// Get the bit value pointed to by the index
-    /// # Arguments
-    /// * index: The index of the bit, starting from 0
+    /// - Arguments
+    ///     - index: The index of the bit, starting from 0
     ///
-    /// # Return
-    /// * Ok(boolean): get the bit boolean value
-    /// * Err(KernelError::IndexOutOfRange): index out of range
+    /// - Returns
+    ///     - boolean: get the bit boolean value
+    /// 
+    /// - Errors
+    ///     - IndexOutOfRange
     pub(crate) fn get_bit(&self, index: usize) -> Result<bool> {
         match (
             index < self.length,
@@ -73,17 +75,17 @@ impl BitMap {
 
     /// Set the bit value pointed to by the index
     /// [warning] Please note that this function is not thread safe
-    /// # Arguments
-    /// * index: The index of the bit, starting from 0
-    /// * value: The bit boolean value which will be save
+    /// - Arguments
+    ///     - index: The index of the bit, starting from 0
+    ///     - value: The bit boolean value which will be save
     ///
-    /// # Return
-    /// # Ok(true): Set and change the bit value
-    /// # Ok(false): The previous value is same as the current new value
-    /// * Err(KernelError::IndexOutOfRange): index out of range
+    /// - Return
+    ///     - Ok(true): Set and change the bit value
+    ///     - Ok(false): The previous value is same as the current new value
+    ///     - Err(KernelError::IndexOutOfRange): index out of range
     ///
-    /// # Pnaic
-    /// * When you change the bit value asynchronously
+    /// - Pnaic
+    ///     - When you change the bit value asynchronously
     pub(crate) fn set_bit(&self, index: usize, value: bool) -> Result<bool> {
         let per_value = self.get_bit(index)?;
         if per_value == value {

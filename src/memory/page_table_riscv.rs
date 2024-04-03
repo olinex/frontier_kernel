@@ -100,9 +100,9 @@ pub(crate) struct PageTableEntry {
 impl PageTableEntry {
     /// Create a new page table entry
     ///
-    /// # Arguments
-    /// * ppn: the physical page number which the PTE refers to
-    /// * flags: permission and some other flag bits
+    /// - Arguments
+    ///     - ppn: the physical page number which the PTE refers to
+    ///     - flags: permission and some other flag bits
     pub(crate) fn new(ppn: usize, flags: PTEFlags) -> Self {
         let mut bits = 0;
         bits.set_bits(PTE_PPN_RANGE, ppn)
@@ -149,9 +149,9 @@ pub(crate) struct PageMapper {
 impl PageMapper {
     /// Create a new page table by allocated frame
     ///
-    /// # Arguments
-    /// * parent: the physical page number of the parent page mapper
-    /// * tracker: the page mapper which contains the page mapper
+    /// - Arguments
+    ///     - parent: the physical page number of the parent page mapper
+    ///     - tracker: the page mapper which contains the page mapper
     fn new(parent: Option<usize>, tracker: frame::FrameTracker) -> Self {
         Self {
             parent,
@@ -180,11 +180,10 @@ impl PageMapper {
         *self.count.access() as usize == PTE_COUNT
     }
 
-    /// Increase the valid PTE count
+    /// Increase the valid PTE count and return increased count
     ///
-    /// # Returns
-    /// * Ok(usize): return the increased count
-    /// * Err(KernelError::AllocFullPageMapper(ppn))
+    /// - Errors
+    ///     - AllocFullPageMapper(ppn)
         fn incr(&self) -> Result<usize> {
         if self.is_full() {
             Err(KernelError::AllocFullPageMapper(self.ppn()))
@@ -194,11 +193,10 @@ impl PageMapper {
         }
     }
 
-    /// Decrease the valid PTE count
+    /// Decrease the valid PTE count and return the decreased count
     ///
-    /// # Returns
-    /// * Ok(usize): return the decreased count
-    /// * Err(KernelError::DeallocEmptyPageMapper(ppn))
+    /// - Errors
+    ///     - DeallocEmptyPageMapper(ppn)
         fn decr(&self) -> Result<usize> {
         if self.is_empty() {
             Err(KernelError::DeallocEmptyPageMapper(self.ppn()))
@@ -223,13 +221,13 @@ pub(crate) struct PageTable {
 impl PageTable {
     /// Get the indexes of the PTE in the page mapper.
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number
+    /// - Arguments
+    ///     - vpn: the virtual page number
     ///
-    /// # Returns:
+    /// - Returns:
     /// Depending on the mechanism of multi-level page tables,
     /// The length of the returned in-page index is also different.
-    /// * Sv39:
+    ///     - Sv39:
     ///     return [usize; 3]: [ppn03(30..39), ppn02(21..30), ppn01(12..21)]
     fn page_indexes(vpn: usize) -> [usize; PAGE_LEVEL] {
         let mut indexes = [0; PAGE_LEVEL];
@@ -266,8 +264,8 @@ impl PageTableTr for PageTable {
     /// Calculate base virtual address with virtual page number,
     /// The value range of the virtual address has certain constraints,
     /// and the value of the high bit must be the same as the first bit of the physical page number
-    /// # Arguments
-    /// * vpn: the virtual page number
+    /// - Arguments
+    ///     - vpn: the virtual page number
     fn cal_base_va_with(vpn: usize) -> usize {
         let mut va = vpn << configs::MEMORY_PAGE_BIT_SITE;
         let sign = va.get_bit(VA_PN_RANGE.end - 1);
@@ -282,12 +280,11 @@ impl PageTableTr for PageTable {
     /// because the method was declare in trait and return value must have certain size shen compile-time
     /// When creating the page table, the root page mapper's physical frame must be allocated
     ///
-    /// # Arguments
-    /// * asid: address space id
+    /// - Arguments
+    ///     - asid: address space id
     ///
-    /// # Returns
-    /// * Ok(Box(PageTable))
-    /// * Err(KernelError::FrameExhausted)
+    /// - Errors
+    ///     - FrameExhausted
     fn new(asid: usize) -> Result<Box<Self>> {
         let tracker = frame::FRAME_ALLOCATOR.alloc()?;
         Ok(Box::new(Self {
@@ -324,10 +321,17 @@ impl PageTableTr for PageTable {
     /// Please notice that this method will not alloc frame,
     /// the frame which is referenced by the ppn argument can be allocated by yourself
     ///
-    /// # Arguments
-    /// * vpn: The virtual page number
-    /// * ppn: The physical page number
-    /// * flags: The flags of the PTE
+    /// - Arguments
+    ///     - vpn: The virtual page number
+    ///     - ppn: The physical page number
+    ///     - flags: The flags of the PTE
+    /// 
+    /// - Errors
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
     fn map_without_alloc(&mut self, vpn: usize, ppn: usize, flags: PageTableFlags) -> Result<()> {
         // force mark the flag if `valid` to be ture
         let bits = flags.bits() | PTEFlags::V.bits();
@@ -385,13 +389,13 @@ impl PageTableTr for PageTable {
     /// If all the entries in the page mapper is invalid, it means the frame of the page mapper can be deallocated.
     /// If the current page mapper is removed, we maybe need to loop up several times to find the empty one.
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number which will be dealloc
+    /// - Arguments
+    ///     - vpn: the virtual page number which will be dealloc
     ///
-    /// # Returns
-    /// * Ok(ppn)
-    /// * Err(KernelError::VPNNotMapped(vpn))
-    /// * Err(KernelError::PPNNotMapped(ppn))
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
+    ///     - PPNNotMapped(ppn)
+    ///     - DeallocEmptyPageMapper(ppn)
     fn unmap_without_dealloc(&mut self, vpn: usize) -> Result<usize> {
         // get the physical page number indexes
         let indexes = Self::page_indexes(vpn);
@@ -464,14 +468,17 @@ impl PageTableTr for PageTable {
 
     /// Establish mapping in virtual and physical page numbers and allocating memory frame.
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number which we want to map
-    /// * flags: the flags of the PTE
+    /// - Arguments
+    ///     - vpn: the virtual page number which we want to map
+    ///     - flags: the flags of the PTE
     ///
-    /// # Returns
-    /// * Ok(ppn)
-    /// * Err(KernelError:VPNAlreadyMapped(vpn))
-    /// * Err(KernelError::InvaidPageTablePerm(flags))
+    /// - Errors
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags) 
+    ///     - FrameExhausted 
+    ///     - AllocFullPageMapper(ppn) 
+    ///     - PPNAlreadyMapped(ppn) 
+    ///     - PPNNotMapped(ppn)
     fn map(&mut self, vpn: usize, flags: PageTableFlags) -> Result<usize> {
         if !flags.is_empty() {
             let tracker = frame::FRAME_ALLOCATOR.alloc()?;
@@ -488,12 +495,13 @@ impl PageTableTr for PageTable {
 
     /// Delete the PTE which references the vpn and deallocates the frames
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number which we want to unmap
+    /// - Arguments
+    ///     - vpn: the virtual page number which we want to unmap
     ///
-    /// # Returns
-    /// * Ok(ppn)
-    /// * Err(KernelError:VPNNotMapped(vpn))
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
+    ///     - PPNNotMapped(ppn)
+    ///     - DeallocEmptyPageMapper(ppn)
     fn unmap(&mut self, vpn: usize) -> Result<usize> {
         let ppn = self.unmap_without_dealloc(vpn)?;
         match self.trackers.remove(&vpn) {
@@ -505,11 +513,12 @@ impl PageTableTr for PageTable {
     /// Transalte the virtual page number to the physical page number according to the page table.
     /// If vpn is not specified then we will return None
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number
+    /// - Arguments
+    ///     - vpn: the virtual page number
     ///
-    /// # Returns
-    /// * Some(ppn)
+    /// - Returns
+    ///     - Some(ppn)
+    ///     - None
     fn translate_ppn_with(&self, vpn: usize) -> Option<usize> {
         let indexes = Self::page_indexes(vpn);
         let last = PAGE_LEVEL - 1;
@@ -532,12 +541,11 @@ impl PageTableTr for PageTable {
 
     /// Get the frame tracker by virtual page number
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number
+    /// - Arguments
+    ///     - vpn: the virtual page number
     ///
-    /// # Returns
-    /// * Ok(&frame::FrameTracker)
-    /// * Err(KernelError::VPNNotMapped(vpn))
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     fn get_tracker_with(&self, vpn: usize) -> Result<&frame::FrameTracker> {
         self.trackers
             .get(&vpn)
@@ -546,12 +554,12 @@ impl PageTableTr for PageTable {
 
     /// Returns data within a physical page according to the specified data structure
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number
-    /// * offset: The offset of the specified data structure, start from 0
+    /// - Arguments
+    ///     - vpn: the virtual page number
+    ///     - offset: The offset of the specified data structure, start from 0
     ///
-    /// # Returns
-    /// * Ok(&mut U)
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     fn as_kernel_mut<'a, 'b, U>(&self, vpn: usize, offset: usize) -> Result<&'b mut U> {
         let tracker = self.get_tracker_with(vpn)?;
         Ok(unsafe { tracker.as_kernel_mut(offset) })
@@ -559,11 +567,11 @@ impl PageTableTr for PageTable {
 
     /// Get the physical memory data from the frame as u8 array
     ///
-    /// # Arguments
-    /// * vpn: the virtual page number
+    /// - Arguments
+    ///     - vpn: the virtual page number
     ///
-    /// # Returns
-    /// * &mut [u8; MEMORY_PAGE_SIZE]
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     fn get_byte_array<'a, 'b>(
         &'a self,
         vpn: usize,

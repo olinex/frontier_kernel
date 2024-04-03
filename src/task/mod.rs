@@ -56,11 +56,17 @@ pub(crate) fn run() -> ! {
 }
 
 /// Suspend current task and run other runable task
+/// 
+/// - Errors
+///     - ProcessHaveNotTask
 pub(crate) fn suspend_current_and_run_other_task() -> Result<()> {
     process::PROCESSOR.suspend_current_and_run_other_task()
 }
 
 /// Exit current task and run other runable task
+/// 
+/// - Errors
+///     - ProcessHaveNotTask
 pub(crate) fn exit_current_and_run_other_task(exit_code: i32) -> Result<()> {
     process::PROCESSOR.exit_current_and_run_other_task(exit_code)
 }

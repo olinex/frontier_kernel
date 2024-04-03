@@ -20,8 +20,8 @@ pub(crate) fn set_next_trigger() {
 /// Get the current timer as microseconds.
 /// Be careful, the timer microseconds isn't the timestamp from 1970-01-01T00:00:00,
 /// it is the timestamp from the moment when cpu was reset:
-/// * 1 seconds = 1000 milliseconds 
-/// * 1 milliseconds = 1000 microseconds
+///     - 1 seconds = 1000 milliseconds 
+///     - 1 milliseconds = 1000 microseconds
 #[inline(always)]
 pub(crate) fn get_timer_us() -> usize {
     SBI::get_timer() * MICRO_PER_SEC / configs::BOARD_CLOCK_FREQ

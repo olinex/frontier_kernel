@@ -14,17 +14,30 @@ use crate::lang::buffer::{ByteBuffers, RingBuffer};
 use crate::prelude::*;
 use crate::task::suspend_current_and_run_other_task;
 
+/// A wrapper enumeration class for ringbuffer, only readable or writable.
+/// For the same ringbuffer, it only makes sense to write data to it if it is read.
+///
+/// So the writable side of the pipe holds a strong reference to the ring'buffer.
+/// This means that even if the writable side is turned off,
+/// the data in the buffer that has not yet been read will still be read.
+///
+/// Conversely, if there are no readable ends,
+/// the pipe will be automatically recycled,
+/// and weak references on the writable side will no longer be able to be written.
 #[derive(EnumGroup)]
 pub(crate) enum Pipe {
     Read(Arc<Mutex<RingBuffer>>),
     Write(Weak<Mutex<RingBuffer>>),
 }
 impl Pipe {
+    /// Create a new readable pipe
     pub(crate) fn new(capacity: usize) -> Self {
         Self::Read(Arc::new(Mutex::new(RingBuffer::new(capacity))))
     }
 
-    pub(crate) fn drainage(&self) -> Option<Self> {
+    /// Fork writable pipe, and if the current pipe is readable, it will inevitably return a writable copy of the pipe.
+    /// If the current pipe is writable, None will be returned when all readable sides of the pipe have been closed.
+    pub(crate) fn writable_fork(&self) -> Option<Self> {
         match self {
             Self::Read(tap) => Some(Self::Write(Arc::downgrade(tap))),
             Self::Write(tap) => tap
@@ -33,25 +46,26 @@ impl Pipe {
         }
     }
 
-    pub(crate) fn clone(&self) -> Option<Self> {
+    /// Fork readable pipe, and if the current pipe is readable, it will inevitably return a readable copy of the pipe.
+    /// If the current pipe is writable, None will be returned when all readable sides of the pipe have been closed.
+    #[allow(dead_code)]
+    pub(crate) fn readable_fork(&self) -> Option<Self> {
         match self {
+            Self::Write(tap) => tap.upgrade().and_then(|upgrade| Some(Self::Read(upgrade))),
             Self::Read(tap) => Some(Self::Read(Arc::clone(tap))),
-            Self::Write(tap) => tap
-                .upgrade()
-                .and_then(|upgrade| Some(Self::Write(Arc::downgrade(&upgrade)))),
         }
     }
 
-    #[inline(always)]
-    pub(crate) fn readable(&self) -> bool {
-        self.is_read()
+    /// Just copy current pipe, no matter if the pipe is closed.
+    #[allow(dead_code)]
+    pub(crate) fn clone(&self) -> Self {
+        match self {
+            Self::Read(tap) => Self::Read(Arc::clone(tap)),
+            Self::Write(tap) => Self::Write(Weak::clone(tap)),
+        }
     }
 
-    #[inline(always)]
-    pub(crate) fn writable(&self) -> bool {
-        self.is_write()
-    }
-
+    /// Check if the pipe is closed and cannot write anymore byte into it.
     pub(crate) fn all_write_end_closed(&self) -> bool {
         match self {
             Self::Write(_) => false,
@@ -59,6 +73,7 @@ impl Pipe {
         }
     }
 
+    /// Check if the pipe is close and no any other readable tap.
     pub(crate) fn all_read_end_closed(&self) -> bool {
         match self {
             Self::Read(_) => false,
@@ -67,6 +82,25 @@ impl Pipe {
     }
 }
 impl File for Pipe {
+
+    /// Read bytes from pipe and write them into buffers.
+    /// Only readable pipe can call this method or it will panic.
+    /// 
+    /// Each time it tries to read some bytes from the pipe, 
+    /// this method will try to acquire a read-write lock on the pipe, 
+    /// and if the lock is held by another task, it will pause the current task. 
+    /// 
+    /// After successfully obtaining the read-write lock, 
+    /// it will first check whether there are bytes in the pipe that have not yet been read, 
+    /// if they exist, they will write all of them to the buffer as much as possible, 
+    /// if they do not exist, they will check whether there are still writers on the side, 
+    /// and if they do not, they will immediately end the current task.
+    /// 
+    /// See [`crate::fs::File`]
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
+    ///     - EOB
     fn read(&self, buffers: ByteBuffers) -> Result<u64> {
         let tap = if let Self::Read(tap) = self {
             tap
@@ -108,6 +142,24 @@ impl File for Pipe {
         Ok(already_readed_size)
     }
 
+    /// Read bytes from buffers and write them into pipe.
+    /// Only writable pipe can call this method or it will panic.
+    /// 
+    /// Each time it tries to write some bytes to the pipe, 
+    /// this method will try to acquire a read-write lock on the pipe, 
+    /// and if the lock is held by another task, it will pause the current task. 
+    /// 
+    /// After successfully obtaining the read-write lock, 
+    /// it will first check whether there are bytes in the pipe that have not yet been write, 
+    /// if they exist, they will write all of them to the pipe as much as possible, 
+    /// if they do not exist, they will check whether there are still readers on the side, 
+    /// and if they do not, they will immediately end the current task.
+    /// 
+    /// See [`crate::fs::File`]
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
+    ///     - EOB
     fn write(&self, buffers: ByteBuffers) -> Result<u64> {
         let tap = if let Self::Write(tap) = self {
             tap

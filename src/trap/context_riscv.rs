@@ -53,26 +53,28 @@ cfg_if! {
         impl TrapContext {
             /// Write value to x2 register (sp)
             ///
-            /// # Arguments
-            /// * sp: the stack pointer memory address
+            /// - Arguments
+            ///     - sp: the stack pointer memory address
             pub(crate) fn set_sp(&mut self, sp: usize) {
                 self.x[2] = sp;
             }
 
-            /// Write value to argument register
+            /// Write value to argument register(a0 ~ a7[x10 ~ x17])
             ///
-            /// # Arguments
-            /// * index: the index of the argument register
-            /// * value: the value which will be written
+            /// - Arguments
+            ///     - index: the index of the argument register
+            ///     - value: the value which will be written
             pub(crate) fn set_arg(&mut self, index: usize, value: usize) {
+                assert!(index <= 7);
                 self.x[10 + index] = value;
             }
 
-            /// Read x10 register (a0) value
+            /// Read value from argument register
             /// 
-            /// # Arguments
-            /// * index: the index of the argument register
+            /// - Arguments
+            ///     - index: the index of the argument register
             pub(crate) fn get_arg(&self, index: usize) -> usize {
+                assert!(index <= 7);
                 self.x[10 + index]
             }
 

@@ -22,8 +22,8 @@ pub(crate) struct FrameTracker {
 }
 impl FrameTracker {
     /// Create a new FrameTracker and clear all data in frame
-    /// # Arguments
-    /// * frame: The physical page number
+    /// - Arguments
+    ///     - frame: The physical page number
     pub(crate) fn new(ppn: usize) -> Self {
         let tracker = Self { ppn };
         tracker.clear();
@@ -41,12 +41,11 @@ impl FrameTracker {
     }
 
     /// [Unsafe] Returns data within a physical page according to the specified data structure
-    /// # Arguments
-    /// * offset: The offset of the specified data structure, start from 0
+    /// - Arguments
+    ///     - offset: The offset of the specified data structure, start from 0
     ///
-    /// # Returns
-    /// * &mut U: return the mutable reference of U structure data
-    ///   cannot greater than the page size
+    /// - Returns
+    ///     - &mut U: return the mutable reference of U structure data cannot greater than the page size
         pub(crate) unsafe fn as_kernel_mut<'a, 'b, U>(&'a self, offset: usize) -> &'b mut U {
         let mem_size = mem::size_of::<U>();
         let end = offset + mem_size;
@@ -55,8 +54,9 @@ impl FrameTracker {
     }
 
     /// Get the physical memory data from the frame as u8 array
-    /// # Returns
-    /// * &mut [u8; MEMORY_PAGE_SIZE]
+    /// 
+    /// - Returns
+    ///     - &mut [u8; MEMORY_PAGE_SIZE]
         pub(crate) fn get_byte_array<'a, 'b>(&'a self) -> &'b mut PageBytes {
         unsafe { self.as_kernel_mut(0) }
     }
@@ -85,11 +85,28 @@ lazy_static! {
 }
 impl FRAME_ALLOCATOR {
 
+    /// Alloc a new frame an return the tracker.
+    /// If the tracker is dropped, the frame will automatic dealloc.
+    /// 
+    /// - Errors
+    ///     - FrameExhausted
     pub(crate) fn alloc(&self) -> Result<FrameTracker> {
         let ppn = self.exclusive_access().alloc()?;
         Ok(FrameTracker::new(ppn))
     }
 
+    /// Dealloc a old frame.
+    /// This method will be call by frame tracker when it was dropping,
+    /// So they was not necessary to call by yourself.
+    /// 
+    /// In order to prevent this method from being abused, 
+    /// we require that the incoming arguments of this method must be mutable frame tracker reference
+    /// 
+    /// - Arguments
+    ///     - tracker: the mutable frame tracker reference
+    /// 
+    /// - Errors
+    ///     FrameNotDeallocable(ppn)
     pub(crate) fn dealloc(&self, tracker: &mut FrameTracker) -> Result<()> {
         self.exclusive_access().dealloc(tracker.ppn())
     }

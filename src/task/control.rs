@@ -35,8 +35,19 @@ pub(crate) struct PidTracker {
 impl PidTracker {
     /// Create a new process id tracker and allocate task kernel stack in kernel space.
     ///
-    /// # Arguments
-    /// * pid: the process id which must be allocated from PID_ALLOATOR
+    /// - Arguments
+    ///     - pid: the process id which must be allocated from PID_ALLOATOR
+    ///
+    /// - Errors
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
     fn new(pid: usize) -> Result<Self> {
         debug!("alloc new pid {}", pid);
         KERNEL_SPACE.map_kernel_task_stack(pid)?;
@@ -69,9 +80,8 @@ lazy_static! {
 impl PID_ALLOCATOR {
     /// Allocate the process id, each pid will be unique in each every hart
     ///
-    /// # Returns
-    /// * Ok(PidTracker)
-    /// * Err(KernelError::PidExhausted)
+    /// - Errors
+    ///     - PidExhausted
     fn alloc(&self) -> Result<PidTracker> {
         let pid = self.exclusive_access().alloc()?;
         PidTracker::new(pid)
@@ -79,12 +89,11 @@ impl PID_ALLOCATOR {
 
     /// Deallocates the given tracker's pid
     ///
-    /// # Arguments
-    /// * tracker: the pid tracker to deallocate
+    /// - Arguments
+    ///     - tracker: the pid tracker to deallocate
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::PidNotDeallocable(pid))
+    /// - Errors
+    ///     - PidNotDeallocable(pid)
     fn dealloc(&self, tracker: &mut PidTracker) -> Result<()> {
         self.exclusive_access().dealloc(tracker.pid())
     }
@@ -117,9 +126,22 @@ pub(crate) struct TaskMetaInner {
     fd_table: Vec<Option<Arc<dyn File>>>,
 }
 impl TaskMetaInner {
+    fn get_exit_code(&self) -> usize {
+        self.exit_code
+    }
+
+    fn set_exit_code(&mut self, exit_code: usize) {
+        self.exit_code = exit_code;
+    }
+
     /// Help function for helping the trap context from task's virtual address space
-    /// # Arguments
-    /// * space: the virtual address space
+    ///
+    /// - Arguments
+    ///     - space: the virtual address space
+    ///
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    ///     - VPNNotMapped(vpn)
     fn get_trap_ctx(space: &Space) -> Result<&mut TrapContext> {
         let trap_ctx_area = space.get_trap_context_area()?;
         let (trap_ctx_vpn, _) = trap_ctx_area.range();
@@ -135,22 +157,26 @@ impl TaskMetaInner {
         &self.space
     }
 
+    /// Get the current space's trap context
+    ///
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn trap_ctx(&self) -> Result<&mut TrapContext> {
         Self::get_trap_ctx(&self.space)
     }
 
-    fn get_exit_code(&self) -> usize {
-        self.exit_code
-    }
-
-    fn set_exit_code(&mut self, exit_code: usize) {
-        self.exit_code = exit_code;
-    }
-
+    /// Allocate a file descriptor and set the file object into task meta context.
+    ///
+    /// - Arguments
+    ///     - file: the object which impl File trait
+    ///
+    /// - Errors
+    ///     - FileDescriptorExhausted
     pub(crate) fn allc_fd(&mut self, file: Arc<dyn File>) -> Result<usize> {
         for (fd, wrapper) in self.fd_table.iter_mut().enumerate() {
             if wrapper.is_none() {
-                *wrapper = Some(file.clone());
+                *wrapper = Some(file);
                 return Ok(fd);
             }
         }
@@ -163,11 +189,18 @@ impl TaskMetaInner {
         }
     }
 
+    /// Deallocate a file by file descriptor and remove the file object from task meta context.
+    ///
+    /// - Arguments
+    ///     - fd: file descriptor
+    ///
+    /// - Errors
+    ///     - FileDescriptorDoesNotExist(file descriptor)
     pub(crate) fn dealloc_fd(&mut self, fd: usize) -> Result<()> {
         let wrapper = self
             .fd_table
             .get_mut(fd)
-            .ok_or(KernelError::InvalidFileDescriptor(fd))?;
+            .ok_or(KernelError::FileDescriptorDoesNotExist(fd))?;
         if wrapper.is_some() {
             wrapper.take();
         }
@@ -183,6 +216,10 @@ impl TaskMetaInner {
         Ok(())
     }
 
+    /// Get the reference of the file object by file descriptor
+    ///
+    /// - Arguments
+    ///     - fd: file descriptor
     pub(crate) fn get_file(&self, fd: usize) -> Option<&Arc<dyn File>> {
         self.fd_table.get(fd).and_then(|wrapper| wrapper.as_ref())
     }
@@ -203,13 +240,27 @@ pub(crate) struct TaskMeta {
 impl TaskMeta {
     /// Create a new task meta and make the relationship between parent task and child task
     ///
-    /// # Arguments
-    /// * tracker: the unique id for each task
-    /// * data: the byte data of the task
-    /// * parent: the optional parent task
+    /// - Arguments
+    ///     - tracker: the unique id for each task
+    ///     - data: the byte data of the task
+    ///     - parent: the optional parent task
     ///
-    /// # Returns
-    /// * Ok(TaskMeta)
+    /// - Errors
+    ///     - PidExhausted
+    ///     - ParseElfError
+    ///     - InvalidHeadlessTask
+    ///     - UnloadableTask
+    ///     - FrameExhausted
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
+    ///     - AreaNotExists(start_vpn, end_vpn)
     fn new(name: String, data: &[u8], parent: Option<Arc<Self>>) -> Result<Arc<Self>> {
         let tracker = PID_ALLOCATOR.alloc()?;
         let pid = tracker.pid();
@@ -261,11 +312,24 @@ impl TaskMeta {
 
     /// Fork a new task meta by another task meta which wrapped by Arc.
     ///
-    /// # Arguments
-    /// * self: another task meta which wrapped by Arc.
+    /// - Arguments
+    ///     - self: another task meta which wrapped by Arc.
     ///
-    /// # Return
-    /// Ok(Arc<TaskMeta>)
+    /// - Errors
+    ///     - PidExhausted
+    ///     - ParseElfError
+    ///     - InvalidHeadlessTask
+    ///     - UnloadableTask
+    ///     - FrameExhausted
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn fork(self: &Arc<Self>) -> Result<Arc<Self>> {
         let inner = self.inner_access();
         let name = self.name().clone();
@@ -321,15 +385,60 @@ impl TaskMeta {
     /// Execute the given code in current task and trap context,
     /// so we must create a new address space by code data.
     ///
-    /// # Arguments
-    /// * data: the code to execute
-    pub(crate) fn exec(&self, data: &[u8]) -> Result<()> {
+    /// - Arguments
+    ///     - data: the code to execute
+    ///     - path: the path of executable file in file system
+    ///     - args: command line arguments in string format
+    /// 
+    /// - Errors
+    ///     - OversizeArgs
+    ///     - ParseElfError
+    ///     - InvalidHeadlessTask
+    ///     - UnloadableTask
+    ///     - FrameExhausted
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    pub(crate) fn exec(&self, data: &[u8], path: String, args: String) -> Result<usize> {
+        // check args length limit
+        let path_slice = path.as_bytes();
+        let args_slice = args.as_bytes();
+        // both path and args strings need to be stored in bytes in the user-mode stack and start with the byte length
+        if configs::COMMAND_LINE_ARGUMENTS_BYTE_SIZE < path_slice.len() + args_slice.len() + 2 {
+            return Err(KernelError::OversizeArgs);
+        }
         // memory_set with elf program headers/trampoline/trap context/user stack
         let pid = self.pid();
         let kernel_stack_top_va = self.tracker.kernel_stack_top_va();
-        let (space, user_stack_top_va, entry_point) = KERNEL_SPACE::new_user_from_elf(pid, data)?;
+        let (space, mut user_stack_top_va, entry_point) =
+            KERNEL_SPACE::new_user_from_elf(pid, data)?;
         let trap_ctx_ppn = space.trap_ctx_ppn()?;
         let mut inner = self.inner_exclusive_access();
+        // push arguments into user stack as byte slice
+        for value in args_slice.iter().rev() {
+            user_stack_top_va -= 1;
+            let byte = space.translated_refmut(user_stack_top_va as *const u8)?;
+            *byte = *value;
+        }
+        user_stack_top_va -= core::mem::size_of::<usize>();
+        let length = space.translated_refmut(user_stack_top_va as *const usize)?;
+        *length = args.len();
+        // push path into user stack as byte slice
+        for value in path_slice.iter().rev() {
+            user_stack_top_va -= 1;
+            let byte = space.translated_refmut(user_stack_top_va as *const u8)?;
+            *byte = *value;
+        }
+        user_stack_top_va -= core::mem::size_of::<usize>();
+        let length = space.translated_refmut(user_stack_top_va as *const usize)?;
+        *length = path.len();
         // substitute memory_set
         inner.space = space;
         // update trap_cx ppn
@@ -341,7 +450,9 @@ impl TaskMeta {
             user_stack_top_va,
             kernel_stack_top_va,
         );
-        Ok(())
+        trap_ctx.set_arg(0, 2);
+        trap_ctx.set_arg(1, user_stack_top_va);
+        Ok(2)
     }
 
     /// Wait for other process to finish and return the child process's exit code.
@@ -349,14 +460,17 @@ impl TaskMeta {
     /// or it will find the child process which's pid is equal to the pid argument and check the status.
     /// Only the child process was exited and been zombie status, this function will return the exit code.
     ///
-    /// # Arguments
-    /// * pid: the pid of the child process we are waiting for
-    /// * exit_code_ptr: the mutable pointer which will hold the exit code
+    /// - Arguments
+    ///     - pid: the pid of the child process we are waiting for
+    ///     - exit_code_ptr: the mutable pointer which will hold the exit code
+    /// 
+    /// - Returns
+    ///     - -1: child process not exists
+    ///     - -2: child process have not yet exited
+    ///     - other positive integer: the exit code of the child process
     ///
-    /// # Returns
-    /// * Ok(-1): child process not exists
-    /// * Ok(-2): child process have not yet exited
-    /// * Ok(other positive integer): the exit code of the child process
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn wait(&self, pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
         let mut inner = self.inner_exclusive_access();
         for (index, child) in inner.childrens.iter().enumerate() {
@@ -381,6 +495,35 @@ impl TaskMeta {
     }
 
     /// Create a new initial process
+    /// 
+    /// - Errors
+    ///     - FileSystemError
+    ///         - InodeMustBeDirectory(bitmap index)
+    ///         - DataOutOfBounds
+    ///         - NoDroptableBlockCache
+    ///         - RawDeviceError(error code)
+    ///         - DuplicatedFname(name, inode bitmap index)
+    ///         - BitmapExhausted(start_block_id)
+    ///         - BitmapIndexDeallocated(bitmap_index)
+    ///         - RawDeviceError(error code)
+    ///     - FileMustBeReadable(bitmap index)
+    ///     - FileDoesNotExists(name)
+    ///     - ParseUtf8Error
+    ///     - PidExhausted
+    ///     - ParseElfError
+    ///     - InvalidHeadlessTask
+    ///     - UnloadableTask
+    ///     - FrameExhausted
+    ///     - AreaAllocFailed(start_vpn, end_vpn)
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
+    ///     - PPNNotMapped(ppn)
+    ///     - VPNNotMapped(vpn)
+    ///     - AreaNotExists(start_vpn, end_vpn)
     pub(crate) fn new_init_proc() -> Result<Arc<Self>> {
         let file = ROOT_INODE.find(configs::INIT_PROCESS_PATH, OpenFlags::READ)?;
         let data = file.read_all()?;
@@ -439,8 +582,8 @@ impl TaskMeta {
     /// Mark current task as zombie task and save exit code into the stack context.
     /// If there were any child task, all of there must be changed to bind init process as the parent process.
     ///
-    /// # Arguments
-    /// * exit_code: The exit code passing from user space
+    /// - Arguments
+    ///     - exit_code: The exit code passing from user space
     pub(crate) fn mark_zombie(&self, exit_code: i32) {
         let mut inner = self.inner.exclusive_access();
         inner.status = TaskStatus::Zombie;

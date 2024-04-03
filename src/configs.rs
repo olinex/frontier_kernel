@@ -26,6 +26,7 @@ pub(crate) const TICKS_PER_SEC: usize = 100;
 pub(crate) const LOG_LEVEL: Level = Level::Debug;
 pub(crate) const MAX_FD_COUNT: usize = 65536;
 pub(crate) const PIPE_RING_BUFFER_LENGTH: usize = 32;
+pub(crate) const COMMAND_LINE_ARGUMENTS_BYTE_SIZE: usize = 512;
 
 cfg_if! {
     if #[cfg(feature = "board_qemu")] {

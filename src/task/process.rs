@@ -63,6 +63,11 @@ lazy_static! {
         Arc::new(unsafe { UserPromiseRefCell::new(Processor::new()) });
 }
 impl PROCESSOR {
+
+    /// Get the task which was currently run.
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
     pub(crate) fn current_task(&self) -> Result<Arc<TaskMeta>> {
         self.exclusive_access()
             .current()
@@ -101,9 +106,8 @@ impl PROCESSOR {
 
     /// Mark current task as suspended and run other runable task
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::ProcessHaveNotTask)
+    /// - Errors
+    ///     - ProcessHaveNotTask
     pub(crate) fn suspend_current_and_run_other_task(&self) -> Result<()> {
         let processor = self.access();
         if let Some(meta) = &processor.current {
@@ -121,12 +125,11 @@ impl PROCESSOR {
     /// Mark current task as exited, write the exit code into the current task context,
     /// and run other runable task
     ///
-    /// # Arguments
-    /// * exit_code: the exit code passing from the user space
+    /// - Arguments
+    ///     - exit_code: the exit code passing from the user space
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::ProcessHaveNotTask)
+    /// - Errors
+    ///     - ProcessHaveNotTask
     pub(crate) fn exit_current_and_run_other_task(&self, exit_code: i32) -> Result<()> {
         debug!(
             "exit current task, still {} tasks",

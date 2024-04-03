@@ -9,6 +9,7 @@ use core::fmt::{self, Write};
 // use self mods
 use crate::sbi::*;
 
+struct Stdout;
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {
@@ -17,8 +18,6 @@ impl Write for Stdout {
         Ok(())
     }
 }
-
-struct Stdout;
 
 // impl rust buildin print function
 pub(crate) fn print(args: fmt::Arguments) {

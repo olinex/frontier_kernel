@@ -14,8 +14,8 @@ use crate::task::{exit_current_and_run_other_task, PROCESSOR, TASK_CONTROLLER};
 
 /// Task exits and submit an exit code
 ///
-/// # Arguments
-/// * exit_code
+/// - Arguments
+///     - exit_code
 #[inline(always)]
 pub(crate) fn sys_exit(exit_code: i32) -> ! {
     debug!("Application exited with code {}", exit_code);
@@ -38,8 +38,9 @@ pub(crate) fn sys_get_pid() -> Result<isize> {
 /// If the return value is 0, it means that the process is the new process;
 /// If the return value is other than 0, it means that the process is the parent process and the return value is the pid of the new process
 ///
-/// # Returns
-/// * Ok(0 or new process pid)
+/// - Errors
+///     - ProcessHaveNotTask
+///     
 #[inline(always)]
 pub(crate) fn sys_fork() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
@@ -64,20 +65,33 @@ pub(crate) fn sys_fork() -> Result<isize> {
 /// but instead we should return an error code for the caller to decide how to proceed with it.
 ///
 /// If the task isn't exists, it will return error code(-1)
-/// or this function will not return back.
+/// or this function will always return the count of return back string pointer in user stack(2)
+/// 
+/// - Arguments
+///     - path_ptr: The pointer address that path of the task which should be run in the current process
+///     - args_ptr: The pointer address that string of the command line arguments
 ///
-/// # Arguments
-/// * path: the path of the task which should be run in the current process
-///
-/// # Returns
-/// * Ok(0): task execute success
-/// * Ok(-1): task does not exist
+/// - Errors
+///     - ProcessHaveNotTask
+///     - VPNNotMapped(vpn)
+///     - FileSystemError
+///         - InodeMustBeDirectory(bitmap index)
+///         - DataOutOfBounds
+///         - NoDroptableBlockCache
+///         - RawDeviceError(error code)
+///         - DuplicatedFname(name, inode bitmap index)
+///         - BitmapExhausted(start_block_id)
+///         - BitmapIndexDeallocated(bitmap_index)
+///         - RawDeviceError(error code)
+///     - FileMustBeReadable(bitmap index)
+///     - FileDoesNotExists(name)
 #[inline(always)]
-pub(crate) fn sys_exec(path: *const u8) -> Result<isize> {
+pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
     let inner = task.inner_access();
     let current_space = inner.space();
-    let path = current_space.translated_string(path)?;
+    let path = current_space.translated_string(path_ptr)?;
+    let args = current_space.translated_string(args_ptr)?;
     let file = ROOT_INODE.find(&path, OpenFlags::READ)?;
     let data = file.read_all()?;
     debug!(
@@ -86,23 +100,24 @@ pub(crate) fn sys_exec(path: *const u8) -> Result<isize> {
         data.len()
     );
     drop(file);
-    drop(path);
     drop(inner);
-    task.exec(&data)?;
-    Ok(0)
+    Ok(task.exec(&data, path, args)? as isize)
 }
 
 /// Wait children process becomes a zombie process, reclaim all its resources, and collect its return value
 ///
-/// # Arguments
-/// * pid: the id of the process which we are waiting for
-/// * exit_code_ptr: The pointer address that represents the return value of the child process,
+/// - Arguments
+///     - pid: the id of the process which we are waiting for
+///     - exit_code_ptr: The pointer address that represents the return value of the child process,
 ///   the child process needs to write the return value by itself.
 ///   If this address is 0, it means that it does not need to be saved
 ///
-/// # Returns
-/// * Ok(-1): task does not exist
-/// * Ok(-2): task is still alive
+/// - Returns
+///     - -1: task does not exist
+///     - -2: task is still alive
+/// 
+/// - Errors
+///     - ProcessHaveNotTask
 #[inline(always)]
 pub(crate) fn sys_wait_pid(pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
     let task = PROCESSOR.current_task()?;

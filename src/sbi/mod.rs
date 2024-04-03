@@ -16,14 +16,14 @@ pub(crate) trait SBIApi {
 
     /// Set the trap handler's entry point address to cpu in direct mode
     ///
-    /// # Arguments
-    /// * addr: the physical address of the trap handler
+    /// - Arguments
+    ///     - addr: the physical address of the trap handler
     unsafe fn set_direct_trap_vector(addr: usize);
 
     /// Put a single character into console and print it
     ///
-    /// # Arguments
-    /// * c: the byte of the character
+    /// - Arguments
+    ///     - c: the byte of the character
     fn console_putchar(c: u8);
 
     /// Get a single character from console and return
@@ -36,8 +36,8 @@ pub(crate) trait SBIApi {
 
     /// Set the time counter for cpu to interrupt in the next time
     ///
-    /// # Arguments
-    /// * timer: the counter of the
+    /// - Arguments
+    ///     - timer: the counter of the
     fn set_timer(timer: usize);
 
     /// Set cpu timer interrupt enabled
@@ -48,8 +48,8 @@ pub(crate) trait SBIApi {
 
     /// Write the mmu token to cpu
     ///
-    /// # Arguments
-    /// * bits: mmu token value
+    /// - Arguments
+    ///     - bits: mmu token value
     unsafe fn write_mmu_token(bits: usize);
 
     /// This function is used to make sure that translation lookup buffer is synchronized with the page table forcefully

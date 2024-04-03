@@ -13,6 +13,7 @@ mod time;
 use crate::prelude::*;
 
 mod ids {
+    pub(crate) const DUP: usize = 27;
     pub(crate) const OPEN: usize = 56;
     pub(crate) const CLOSE: usize = 57;
     pub(crate) const PIPE: usize = 59;
@@ -31,9 +32,10 @@ mod ids {
 #[inline(always)]
 pub(crate) fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) -> Result<isize> {
     match syscall_id {
+        ids::DUP => fs::sys_dup(arg1 as usize),
         ids::OPEN => fs::sys_open(arg1 as *const u8, arg2 as u32),
         ids::CLOSE => fs::sys_close(arg1),
-        ids::PIPE => fs::sys_pipe(arg1 as *const [usize; 2]),
+        ids::PIPE => fs::sys_pipe(arg1 as *mut usize, arg2 as *mut usize),
         ids::READ => fs::sys_read(arg1, arg2 as *mut u8, arg3),
         ids::WRITE => fs::sys_write(arg1, arg2 as *const u8, arg3),
         ids::EXIT => process::sys_exit(arg1 as i32),
@@ -41,7 +43,7 @@ pub(crate) fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) 
         ids::GET_TIME => time::sys_get_time(),
         ids::GET_PID => process::sys_get_pid(),
         ids::FORK => process::sys_fork(),
-        ids::EXEC => process::sys_exec(arg1 as *const u8),
+        ids::EXEC => process::sys_exec(arg1 as *const u8, arg2 as *const u8),
         ids::WAIT_PID => process::sys_wait_pid(arg1 as isize, arg2 as *mut i32),
         _ => Err(KernelError::InvaidSyscallId(syscall_id)),
     }

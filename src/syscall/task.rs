@@ -11,8 +11,8 @@ use crate::task;
 
 /// Yield to other task, current task will be suspended
 /// 
-/// # Returns
-/// * Ok(0)
+/// - Errors
+///     - ProcessHaveNotTask
 #[inline(always)]
 pub(crate) fn sys_yield() -> Result<isize> {
     task::suspend_current_and_run_other_task()?;

@@ -18,9 +18,15 @@ use crate::prelude::*;
 
 /// Core trait, all structs that implement this feature can be read and written as files.
 pub(crate) trait File: Send + Sync {
-    /// Read file to `UserBuffer`
+    /// Read file and write data into `UserBuffer`
+    /// 
+    /// - Arguments
+    ///     - buffers: a wrapper class for byte slices in the user-mode stack space
     fn read(&self, buffers: ByteBuffers) -> Result<u64>;
-    /// Write `UserBuffer` to file
+    /// Read `UserBuffer` and write data into file
+    /// 
+    /// - Arguments
+    ///     - buffers: a wrapper class for byte slices in the user-mode stack space
     fn write(&self, buffers: ByteBuffers) -> Result<u64>;
 }
 

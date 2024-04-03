@@ -104,11 +104,11 @@ cfg_if! {
                     drop(inner);
                     drop(task);
                     match syscall(syscall_id, arg1, arg2, arg3) {
-                        Ok(code) => {
+                        Ok(return_back) => {
                             let task = task::PROCESSOR.current_task().unwrap();
                             let inner = task.inner_access();
                             let ctx = inner.trap_ctx().unwrap();
-                            ctx.set_arg(0, code as usize);
+                            ctx.set_arg(0, return_back as usize);
                         },
                         Err(error) => {
                             error!("Syscall Fault cause: {}", error);

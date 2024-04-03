@@ -28,13 +28,13 @@ impl Hal for HalImpl {
     /// Allocate memory frames for DMA to use. 
     /// All frames are temporarily stored in a buffered queue 
     /// and the physical addresses of these frames must be contiguous.
-    /// # TODO: There is currently no mechanism in place to ensure frame continuity!
+    /// - TODO: There is currently no mechanism in place to ensure frame continuity!
     /// 
-    /// # Arguments
-    /// * pages: the number of the frames will be allocated
+    /// - Arguments
+    ///     - pages: the number of the frames will be allocated
     /// 
-    /// # Returns
-    /// * usize: the physical memory address DMA allocated
+    /// - Returns
+    ///     - usize: the physical memory address DMA allocated
     fn dma_alloc(pages: usize) -> usize {
         let mut frames = QUEUE_FRAMES.exclusive_access();
         let mut start_ppn = 0;
@@ -55,9 +55,9 @@ impl Hal for HalImpl {
     /// The release of frames by DMA is random, 
     /// and DMA does not guarantee that it will be released from the start of a continuous frames
     /// 
-    /// # Arguments
-    /// * paddr: the physical memory address
-    /// * pages: the number of the frames will be deallocated
+    /// - Arguments
+    ///     - paddr: the physical memory address
+    ///     - pages: the number of the frames will be deallocated
     fn dma_dealloc(paddr: PhysAddr, pages: usize) -> i32 {
         let mut frames = QUEUE_FRAMES.exclusive_access();
         let mut offset = 0;

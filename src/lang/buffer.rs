@@ -4,39 +4,68 @@
 // self mods
 
 // use other mods
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 // use self mods
 use super::error::{KernelError, Result};
 
+/// Transferring data between the kernel state and the user state
+/// requires the address translation of the memory page,
+/// and the conversion of the contiguous memory space to the kernel mode
+/// may be split into multiple non-contiguous memory pages.
+/// ByteBuffers encapsulate multiple memory pages passed by the user mode
+/// and provide methods to make it easier for the kernel to access the data in the user mode.
 pub(crate) struct ByteBuffers {
+    /// Multiple non-contiguous memory pages, stored as byte slices.
+    ///
+    /// - TODO:
+    /// When switching between kernel and user mode,
+    /// we use the unsafe method that breaks the lifecycle of Rust,
+    /// so we can't specify the lifecycle of the memory page pointer well.
+    /// Looking forward to solving it in the future.
     inner: Vec<&'static mut [u8]>,
     length: usize,
 }
 impl ByteBuffers {
-    ///Create a `UserBuffer` by parameter
+    /// Create a new byte buffers
+    ///
+    /// - Arguments
+    ///     - inner: multiple non-contiguous memory pages
+    ///     - length: total number of the bytes bassed by the user mode.
     pub(crate) fn new(inner: Vec<&'static mut [u8]>, length: usize) -> Self {
         Self { inner, length }
     }
 
-    ///Length of `UserBuffer`
     pub(crate) fn len(&self) -> usize {
         self.length
     }
 
+    /// Sometimes we need to access these distiguous memory pages directly.
+    /// This method directly unpacks and returns a list of memory page slices
     pub(crate) fn into_slices(self) -> Vec<&'static mut [u8]> {
         self.inner
     }
 
+    /// Splice the discontinuous memory pages passed in by the user mode in the kernel space,
+    /// and try to parse them into UTF8 encoded strings.
+    ///
+    /// - TODO:
+    /// Splicing memory pages directly will perform memory copying, which is relatively inefficient.
+    ///
+    /// - Errors
+    ///     - ParseUtf8Error
     pub(crate) fn into_utf8_str(self) -> Result<String> {
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut string = String::new();
         for slice in self.inner.iter() {
-            bytes.extend_from_slice(slice);
+            for byte in slice.iter() {
+                string.push(*byte as char)
+            }
         }
-        Ok(core::str::from_utf8(&bytes)?.to_string())
+        Ok(string)
     }
 
+    /// Convert into iterator, which can read/write the discontinuous memory pages continuously.
     pub(crate) fn into_iter(self) -> ByteBuffersU8Iterator {
         ByteBuffersU8Iterator {
             buffer: self.inner,
@@ -46,12 +75,15 @@ impl ByteBuffers {
     }
 }
 
+/// The iterator which can read/write the discontinuous memory pages continuously.
 pub(crate) struct ByteBuffersU8Iterator {
     buffer: Vec<&'static mut [u8]>,
     index: usize,
     offset: usize,
 }
 impl ByteBuffersU8Iterator {
+    /// Get the next byte continuously from the discontinuous memory pages.
+    /// If return None, means no more bytes have not yet read
     pub(crate) fn next(&mut self) -> Option<u8> {
         if let Some(inner_buffer) = self.buffer.get(self.index) {
             if let Some(value) = inner_buffer.get(self.offset) {
@@ -67,6 +99,14 @@ impl ByteBuffersU8Iterator {
         }
     }
 
+    /// Write byte into the discontinuous memory pages continuously.
+    /// If return Err, means no more memory space have not yet write.
+    ///
+    /// - Arguments
+    ///     - byte: the u8 value we want to write
+    ///
+    /// - Errors
+    ///     - EOB
     pub(crate) fn next_mut(&mut self, byte: u8) -> Result<()> {
         if let Some(inner_buffer) = self.buffer.get_mut(self.index) {
             if let Some(value) = inner_buffer.get_mut(self.offset) {
@@ -84,20 +124,34 @@ impl ByteBuffersU8Iterator {
     }
 }
 
+/// The available state of the ring buffer.
 #[derive(Copy, Clone, PartialEq)]
 pub(crate) enum RingBufferStatus {
+    /// No more byte have not yet been readed
     EMPTY,
+    /// No more space for more byte
     FULL,
     NORMAL(usize),
 }
 
 pub(crate) struct RingBuffer {
+    /// The index position of the buffer,
+    /// pointing to the byte that have not yet been read
     head: usize,
+
+    /// The index position of the buffer,
+    /// pointing to the byte that have not yet been written
     tail: usize,
+
+    /// The available state of the ring buffer.
     status: RingBufferStatus,
     buffer: Vec<u8>,
 }
 impl RingBuffer {
+    /// Create a new ring buffer
+    ///
+    /// - Arguments
+    ///     - capacity: the length of the buffer in heap.
     pub(crate) fn new(capacity: usize) -> Self {
         assert!(capacity > 2);
         Self {
@@ -120,6 +174,7 @@ impl RingBuffer {
         self.buffer.len()
     }
 
+    /// Read the new byte from ring buffer
     pub(crate) fn read_byte(&mut self) -> Option<u8> {
         match self.len() {
             0 => None,
@@ -140,6 +195,13 @@ impl RingBuffer {
         }
     }
 
+    /// Write the new byte into ring buffer
+    ///
+    /// - Arguments
+    ///     - byte: byte to write to the end of ring buffer
+    ///
+    /// - Errors
+    ///     - EOB
     pub(crate) fn write_byte(&mut self, byte: u8) -> Result<()> {
         let capacity = self.capacity();
         match self.len() {

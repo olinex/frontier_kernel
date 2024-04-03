@@ -42,9 +42,9 @@ impl BTreePidAllocator {
 
     /// Initialize a new BTreePidAllocator
     ///
-    /// # Arguments
-    /// * current_pid: the current process id which will be used in next time allocating
-    /// * end_pid: the end of process id which will not be used
+    /// - Arguments
+    ///     - current_pid: the current process id which will be used in next time allocating
+    ///     - end_pid: the end of process id which will not be used
     pub(crate) fn init(&mut self, current_pid: usize, end_pid: usize) {
         assert!(current_pid < end_pid);
         self.current_pid = current_pid;
@@ -53,9 +53,8 @@ impl BTreePidAllocator {
 
     /// Alloc a new process id
     ///
-    /// # Returns
-    /// * Ok(usize): the new process id
-    /// * Err(KernelError::PidExhausted): if no other process id can be allocated
+    /// - Errors
+    ///     - PidExhausted
     pub(crate) fn alloc(&mut self) -> Result<usize> {
         if let Some(pid) = self.recycled.pop_first() {
             Ok(pid)
@@ -72,9 +71,8 @@ impl BTreePidAllocator {
 
     /// Dealloc a process id
     ///
-    /// # Returns
-    /// * Ok(())
-    /// * Err(KernelError::PidNotDeallocable(pid))
+    /// - Errors
+    ///     - PidNotDeallocable(pid)
     pub(crate) fn dealloc(&mut self, pid: usize) -> Result<()> {
         if pid >= self.current_pid || !self.recycled.insert(pid) {
             Err(KernelError::PidNotDeallocable(pid))
