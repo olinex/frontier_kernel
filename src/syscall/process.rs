@@ -109,8 +109,8 @@ pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize
 /// - Arguments
 ///     - pid: the id of the process which we are waiting for
 ///     - exit_code_ptr: The pointer address that represents the return value of the child process,
-///   the child process needs to write the return value by itself.
-///   If this address is 0, it means that it does not need to be saved
+///         the child process needs to write the return value by itself.
+///         If this address is 0, it means that it does not need to be saved
 ///
 /// - Returns
 ///     - -1: task does not exist

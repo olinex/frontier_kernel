@@ -26,7 +26,7 @@ cfg_if! {
         const SSTATUS_XS_RANGE: Range<usize> = 15..17;
 
         #[repr(C)]
-        #[derive(Debug)]
+        #[derive(Debug, Clone, Copy)]
         pub(crate) struct TrapContext {
             /// WARNING: could not change the ordering of the fields in this structure,
             /// because the context instance might be initialized by assembly code in the assembly/trampoline.asm

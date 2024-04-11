@@ -39,13 +39,13 @@ mod process;
 mod switch;
 
 // use other mods
+use frontier_lib::model::signal::Signal;
 
 // use self mods
 use crate::prelude::*;
 
 // reexports
-pub(crate) use process::PROCESSOR;
-pub(crate) use process::TASK_CONTROLLER;
+pub(crate) use process::{PROCESSOR, TASK_CONTROLLER};
 
 /// This method allows the multitasking system to start really running,
 /// which is the engine ignition switch
@@ -55,20 +55,28 @@ pub(crate) fn run() -> ! {
     process::PROCESSOR.schedule()
 }
 
-/// Suspend current task and run other runable task
-/// 
-/// - Errors
-///     - ProcessHaveNotTask
+/// See [`crate::task::process::PROCESSOR::suspend_current_and_run_other_task`]
+#[inline(always)]
 pub(crate) fn suspend_current_and_run_other_task() -> Result<()> {
     process::PROCESSOR.suspend_current_and_run_other_task()
 }
 
-/// Exit current task and run other runable task
-/// 
-/// - Errors
-///     - ProcessHaveNotTask
+/// See [`crate::task::process::PROCESSOR::exit_current_and_run_other_task`]
+#[inline(always)]
 pub(crate) fn exit_current_and_run_other_task(exit_code: i32) -> Result<()> {
     process::PROCESSOR.exit_current_and_run_other_task(exit_code)
+}
+
+/// See [`crate::task::process::PROCESSOR::send_current_task_signal`]
+#[inline(always)]
+pub(crate) fn send_current_task_signal(signal: Signal) -> Result<()> {
+    process::PROCESSOR.send_current_task_signal(signal)
+}
+
+/// See [`crate::task::process::PROCESSOR::handle_current_task_signals`]
+#[inline(always)]
+pub(crate) fn handle_current_task_signals() -> Result<Option<Signal>> {
+    process::PROCESSOR.handle_current_task_signals()
 }
 
 #[inline(always)]

@@ -6,10 +6,10 @@
 // use other mods
 use alloc::sync::Arc;
 use spin::Mutex;
+use frontier_lib::constant::charater;
 
 // use self mods
 use super::File;
-use crate::constant::charater;
 use crate::lang::buffer::ByteBuffers;
 use crate::prelude::*;
 use crate::sbi::{SBIApi, SBI};

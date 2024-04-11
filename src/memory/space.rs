@@ -12,13 +12,13 @@ use elf::abi;
 use elf::endian::AnyEndian;
 use elf::segment::ProgramHeader;
 use elf::ElfBytes;
+use frontier_lib::constant::charater;
 
 // use self mods
 use super::allocator::LinkedListPageRangeAllocator;
 use super::area::{Area, AreaMapping};
 use super::page_table::{PageTable, MAX_TASK_ID};
 use super::{PageTableFlags, PageTableTr};
-use crate::constant::charater;
 use crate::lang::buffer::ByteBuffers;
 use crate::lang::container::UserPromiseRefCell;
 use crate::sbi::{self, SBIApi};

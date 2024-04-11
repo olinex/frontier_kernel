@@ -8,6 +8,7 @@ use alloc::string::String;
 use enum_group::EnumGroup;
 use frontier_fs::FFSError;
 use thiserror_no_std::Error;
+use frontier_lib::{error::LibError, model::signal::Signal};
 
 // use self mods
 
@@ -128,6 +129,14 @@ pub(crate) enum KernelError {
     #[groups(vfs)]
     #[error("Inode {0} must be executable")]
     FileMustBeExecutable(u32),
+
+    #[groups(signal)]
+    #[error("Duplicate signal {0:?} as setting")]
+    DuplicateSignal(Signal),
+
+    #[groups(others, lib)]
+    #[error("Lib error: {0}")]
+    LibError(#[from] LibError),
 
     #[groups(others, fs)]
     #[error("File system error: {0}")]

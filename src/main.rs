@@ -31,7 +31,6 @@ extern crate riscv;
 
 // self mods
 mod configs;
-mod constant;
 mod drivers;
 mod fs;
 mod lang;

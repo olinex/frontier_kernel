@@ -12,6 +12,7 @@ use core::cell::{Ref, RefMut};
 use core::str::FromStr;
 use enum_group::EnumGroup;
 use frontier_fs::OpenFlags;
+use frontier_lib::model::signal::{Signal, SignalAction, SignalFlags, SingalTable, SIG_COUNT};
 
 // use self mods
 use super::allocator::BTreePidAllocator;
@@ -108,6 +109,62 @@ pub(crate) enum TaskStatus {
     Zombie,
 }
 
+#[derive(Debug)]
+pub(crate) struct TaskSignalMeta {
+    handling: Option<Signal>,
+    /// The signals which was set by kill syscall
+    setted: SignalFlags,
+    /// The mask of the signals which should not be active
+    masked: SignalFlags,
+    /// The functions for handler signals, the index of the action is the signal value
+    actions: SingalTable,
+    /// The backup value of normal trap context saved when handing signal
+    trap_ctx_backup: Option<TrapContext>,
+    /// If killed is true, the current task will be exit in the after
+    /// see [`crate::task::process::PROCESSOR::handle_current_task_signals`]
+    killed: bool,
+    /// If frozen is true, the current task will stop running until receive CONT signal
+    /// see [`crate::task::process::PROCESSOR::handle_current_task_signals`]
+    frozen: bool,
+}
+impl TaskSignalMeta {
+    /// Create a new task empty signal meta
+    fn new() -> Self {
+        Self {
+            handling: None,
+            setted: SignalFlags::empty(),
+            masked: SignalFlags::empty(),
+            actions: SingalTable::new(),
+            trap_ctx_backup: None,
+            killed: false,
+            frozen: false,
+        }
+    }
+
+    /// Check whether the signal is pending or not based on the meta.
+    /// Any pending signal will be handle by custom action of default action.
+    /// The signal must meet the following conditions:
+    ///     - have been setted by kill syscall
+    ///     - not blocked by global masking setting
+    ///     - no other handling signal or the handing signal not block it
+    ///
+    /// - Arguments:
+    ///     - signal: The signal being detected
+    fn is_pending_signal(&self, signal: Signal) -> bool {
+        let flag = signal.into();
+        self.setted.contains(flag)
+            && !self.masked.contains(flag)
+            && match self.handling {
+                Some(handing_signal) => !self
+                    .actions
+                    .get(handing_signal as usize)
+                    .mask()
+                    .contains(flag),
+                None => true,
+            }
+    }
+}
+
 /// The meta information of the task when in supervisor mode context
 pub(crate) struct TaskMetaInner {
     /// The running status of the task
@@ -124,14 +181,65 @@ pub(crate) struct TaskMetaInner {
     exit_code: usize,
     /// The file table of tasks which is using by task
     fd_table: Vec<Option<Arc<dyn File>>>,
+    /// The meta information all about signal
+    signal: TaskSignalMeta,
 }
 impl TaskMetaInner {
+    #[inline(always)]
     fn get_exit_code(&self) -> usize {
         self.exit_code
     }
 
+    #[inline(always)]
     fn set_exit_code(&mut self, exit_code: usize) {
         self.exit_code = exit_code;
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_singal_mask(&self) -> SignalFlags {
+        self.signal.masked
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_singal_mask(&mut self, mask: SignalFlags) {
+        self.signal.masked = mask;
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_signal_action(&self, signal: Signal) -> SignalAction {
+        self.signal.actions.get(signal as usize)
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_signal_action(&mut self, signal: Signal, action: SignalAction) {
+        self.signal.actions.set(signal as usize, action)
+    }
+
+    /// Clear the signal being processed, and resume the normal trap context.
+    /// We use the value of a0 in trap_ctx as the return value of the system call instead of using a specific value like 0,
+    /// otherwise when the user-mode recovery trap context is returned,
+    /// the a0 register in the original process context will be overwritten by these specific values,
+    /// making it impossible for the process to resume normal execution after the signal processing is complete.
+    ///
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    ///     - VPNNotMapped(vpn)
+    #[inline(always)]
+    pub(crate) fn signal_return(&mut self) -> Result<isize> {
+        let signal = match self.signal.handling {
+            Some(signal) => signal,
+            None => return Ok(-1),
+        };
+        let trap_ctx_backup = match self.signal.trap_ctx_backup {
+            Some(ctx) => ctx,
+            None => return Ok(-1),
+        };
+        self.signal.handling = None;
+        self.signal.setted.remove(signal.into());
+        self.signal.trap_ctx_backup = None;
+        let trap_ctx_current = self.trap_ctx()?;
+        *trap_ctx_current = trap_ctx_backup;
+        Ok(trap_ctx_current.get_arg(0) as isize)
     }
 
     /// Help function for helping the trap context from task's virtual address space
@@ -287,6 +395,7 @@ impl TaskMeta {
                 Some(Arc::clone(&STDOUT)),
                 Some(Arc::clone(&STDOUT)),
             ],
+            signal: TaskSignalMeta::new(),
         };
         debug!(
             "load task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}, entry_point: {:#x}",
@@ -358,6 +467,7 @@ impl TaskMeta {
             childrens: vec![],
             exit_code: 0,
             fd_table: new_fd_table,
+            signal: TaskSignalMeta::new(),
         };
         debug!(
             "fork task {} with pid: {}, user_stack_top_va: {:#x}, kernel_stack_top_va: {:#x}",
@@ -389,7 +499,7 @@ impl TaskMeta {
     ///     - data: the code to execute
     ///     - path: the path of executable file in file system
     ///     - args: command line arguments in string format
-    /// 
+    ///
     /// - Errors
     ///     - OversizeArgs
     ///     - ParseElfError
@@ -463,7 +573,7 @@ impl TaskMeta {
     /// - Arguments
     ///     - pid: the pid of the child process we are waiting for
     ///     - exit_code_ptr: the mutable pointer which will hold the exit code
-    /// 
+    ///
     /// - Returns
     ///     - -1: child process not exists
     ///     - -2: child process have not yet exited
@@ -494,8 +604,102 @@ impl TaskMeta {
         }
     }
 
-    /// Create a new initial process
+    /// Send signal to current task.
+    ///
+    /// - Arguments
+    ///     - signal: which signal will be setted
+    ///
+    /// - Errors
+    ///     - DuplicateSignal(signal)
+    pub(crate) fn kill(&self, signal: Signal) -> Result<()> {
+        let mut inner = self.inner_exclusive_access();
+        if inner.signal.setted.contains(signal.into()) {
+            Err(KernelError::DuplicateSignal(signal))
+        } else {
+            inner.signal.setted.insert(signal.into());
+            Ok(())
+        }
+    }
+
+    /// Check if each signal bit is turned on and perform different processing functions depending on the signal.
+    /// The following signals are forcibly processed and taken over by the kernel in once:
+    ///     - STOP
+    ///     - CONT
+    ///     - KILL
+    ///     - DEF
     /// 
+    /// And only one of the remaining signals will be processed.
+    /// 
+    /// - Errors
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    ///     - VPNNotMapped(vpn)
+    pub(crate) fn handle_all_signals(&self) -> Result<(bool, bool)> {
+        let mut inner = self.inner_exclusive_access();
+        for signum in 0..SIG_COUNT {
+            let signal: Signal = signum.try_into().unwrap();
+            if !inner.signal.is_pending_signal(signal) {
+                continue;
+            }
+            match signal {
+                Signal::STOP => {
+                    inner.signal.setted ^= SignalFlags::STOP;
+                    inner.signal.frozen = true;
+                }
+                Signal::CONT => {
+                    inner.signal.setted ^= SignalFlags::CONT;
+                    inner.signal.frozen = false;
+                }
+                Signal::KILL | Signal::DEF => {
+                    inner.signal.killed = true;
+                }
+                other => {
+                    let action = inner.signal.actions.get(signal as usize);
+                    let handler = action.handler();
+                    if handler.is_null() {
+                        debug!(
+                            "Handle signal {:?} with default action: ignore it or kill process",
+                            signal
+                        );
+                        break;
+                    }
+                    debug!(
+                        "Handle signal {:?} with custom action: {}",
+                        signal, handler as usize,
+                    );
+                    let trap_ctx = inner.trap_ctx()?;
+                    let trap_ctx_backup = trap_ctx.clone();
+                    trap_ctx.sepc = handler as usize;
+                    trap_ctx.set_arg(0, signal as usize);
+                    inner.signal.setted ^= other.into();
+                    inner.signal.handling = Some(other);
+                    inner.signal.trap_ctx_backup = Some(trap_ctx_backup);
+                    break;
+                }
+            }
+        }
+        return Ok((inner.signal.killed, inner.signal.frozen));
+    }
+
+    /// Check if there are any bad signal is setted.
+    pub(crate) fn check_bad_signals(&self) -> Option<Signal> {
+        let inner = self.inner_access();
+        if inner.signal.setted.contains(SignalFlags::INT) {
+            Some(Signal::INT)
+        } else if inner.signal.setted.contains(SignalFlags::ILL) {
+            Some(Signal::ILL)
+        } else if inner.signal.setted.contains(SignalFlags::ABRT) {
+            Some(Signal::ABRT)
+        } else if inner.signal.setted.contains(SignalFlags::FPE) {
+            Some(Signal::FPE)
+        } else if inner.signal.setted.contains(SignalFlags::SEGV) {
+            Some(Signal::SEGV)
+        } else {
+            None
+        }
+    }
+
+    /// Create a new initial process
+    ///
     /// - Errors
     ///     - FileSystemError
     ///         - InodeMustBeDirectory(bitmap index)
@@ -617,6 +821,15 @@ impl TaskController {
     /// Fetch and pop the first task from the queue
     pub(crate) fn fetch(&mut self) -> Option<Arc<TaskMeta>> {
         self.dqueue.pop_front()
+    }
+
+    pub(crate) fn get(&self, pid: usize) -> Option<Arc<TaskMeta>> {
+        for task in self.dqueue.iter() {
+            if task.pid() == pid {
+                return Some(Arc::clone(task));
+            }
+        }
+        None
     }
 
     /// Create a new task controller, which will load the task code and create the virtual address space

@@ -95,6 +95,7 @@ dependencies = [
  "elf",
  "enum-group",
  "frontier_fs",
+ "frontier_lib",
  "lazy_static",
  "libm",
  "log",
@@ -103,6 +104,15 @@ dependencies = [
  "spin 0.9.8",
  "thiserror-no-std",
  "virtio-drivers",
+]
+
+[[package]]
+name = "frontier_lib"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.4.2",
+ "enum-group",
+ "thiserror-no-std",
 ]
 
 [[package]]

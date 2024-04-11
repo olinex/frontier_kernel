@@ -5,6 +5,7 @@
 
 // use other mods
 use core::arch::{asm, global_asm};
+use frontier_lib::model::signal::SignalFlags;
 use riscv::register::{
     scause::{self, Exception, Interrupt, Trap},
     stval,
@@ -111,7 +112,7 @@ cfg_if! {
                             ctx.set_arg(0, return_back as usize);
                         },
                         Err(error) => {
-                            error!("Syscall Fault cause: {}", error);
+                            error!("Syscall fault cause: {}", error);
                             task::exit_current_and_run_other_task(-1).unwrap();
                         }
                     }
@@ -119,15 +120,17 @@ cfg_if! {
                 // exception about memory fault
                 Exception::StoreFault
                 | Exception::StorePageFault
+                | Exception::InstructionFault
+                | Exception::InstructionPageFault
                 | Exception::LoadFault
                 | Exception::LoadPageFault => {
-                    error!("PageFault in application, kernel killed it.");
-                    task::exit_current_and_run_other_task(-2).unwrap();
+                    error!("PageFault in application, kernel send signal.");
+                    task::send_current_task_signal(SignalFlags::SEGV.trunc()).unwrap()
                 }
                 // apllcation run some illegal instruction
                 Exception::IllegalInstruction => {
-                    error!("IllegalInstruction in application, kernel killed it.");
-                    task::exit_current_and_run_other_task(-3).unwrap();
+                    error!("IllegalInstruction in application, kernel send signal.");
+                    task::send_current_task_signal(SignalFlags::ILL.trunc()).unwrap()
                 }
                 _ => {
                     panic!(
@@ -168,6 +171,22 @@ cfg_if! {
                 // interrupt trap cause
                 Trap::Interrupt(interrupt) => interrupt_trap_handler(interrupt),
             };
+            // each time before return back to user-mode execution,
+            // we try to check all pending signals and do some other action.
+            match task::handle_current_task_signals() {
+                // do noting when no signal is pending
+                Ok(None) => (),
+                // receive bad signal and exit current task
+                Ok(Some(signal)) => {
+                    error!("Syscall receive bad signal {}={}", signal.variant_name(), signal as usize);
+                    task::exit_current_and_run_other_task(-(signal as i32)).unwrap();
+                }
+                // receive error when handling signal
+                Err(error) => {
+                    error!("Syscall handle signal cause: {}", error);
+                    task::exit_current_and_run_other_task(-1).unwrap();
+                }
+            }
             trap_return();
         }
     } else {

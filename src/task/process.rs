@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 // use self mods
 use super::context::TaskContext;
 use super::control::{TaskController, TaskMeta};
-use super::switch;
+use super::{switch, Signal};
 use crate::lang::container::UserPromiseRefCell;
 use crate::{configs, prelude::*};
 
@@ -56,6 +56,18 @@ impl TASK_CONTROLLER {
     pub(crate) fn fetch_task(&self) -> Option<Arc<TaskMeta>> {
         self.exclusive_access().fetch()
     }
+
+    pub(crate) fn get(&self, pid: isize) -> Option<Arc<TaskMeta>> {
+        if let Ok(task) = PROCESSOR.current_task() {
+            if pid < 0 || task.pid() == pid as usize {
+                Some(Arc::clone(&task))
+            } else {
+                None
+            }
+        } else {
+            self.access().get(pid as usize)
+        }
+    }
 }
 
 lazy_static! {
@@ -63,9 +75,8 @@ lazy_static! {
         Arc::new(unsafe { UserPromiseRefCell::new(Processor::new()) });
 }
 impl PROCESSOR {
-
     /// Get the task which was currently run.
-    /// 
+    ///
     /// - Errors
     ///     - ProcessHaveNotTask
     pub(crate) fn current_task(&self) -> Result<Arc<TaskMeta>> {
@@ -142,6 +153,57 @@ impl PROCESSOR {
             let mut unused = TaskContext::empty();
             self.switch(&mut unused as *mut _);
             Ok(())
+        } else {
+            Err(KernelError::ProcessHaveNotTask)
+        }
+    }
+
+    /// Send signal to current task.
+    /// 
+    /// - Arguments
+    ///     - signal: which signal will be setted
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
+    ///     - DuplicateSignal(signal)
+    pub(crate) fn send_current_task_signal(&self, signal: Signal) -> Result<()> {
+        let processor = self.access();
+        if let Some(meta) = &processor.current {
+            meta.kill(signal)
+        } else {
+            Err(KernelError::ProcessHaveNotTask)
+        }
+    }
+
+    /// All received signals are processed until all signals have been processed, 
+    /// or the current service needs to be terminated/suspended
+    /// 
+    /// - Returns
+    ///     - Ok(None): every signal was been handled and return back to user-mode
+    ///     - Ok(Some(signal)): the signal is not completely silent
+    ///     - Err(error): get something wrong when handling signal
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
+    ///     - AreaNotExists(start_vpn, end_vpn)
+    ///     - VPNNotMapped(vpn)
+    pub(crate) fn handle_current_task_signals(&self) -> Result<Option<Signal>> {
+        loop {
+            let processor = self.access();
+            if let Some(meta) = &processor.current {
+                let (killed, frozen) = meta.handle_all_signals()?;
+                if !frozen || killed {
+                    break;
+                };
+                drop(processor);
+                self.suspend_current_and_run_other_task()?;
+            } else {
+                return Err(KernelError::ProcessHaveNotTask)
+            }
+        }
+        let processor = self.access();
+        if let Some(meta) = &processor.current {
+            Ok(meta.check_bad_signals())
         } else {
             Err(KernelError::ProcessHaveNotTask)
         }
