@@ -48,7 +48,7 @@ use core::arch::global_asm;
 // re export commonly used modules or functions
 mod prelude {
     pub(crate) use crate::lang::error::*;
-    pub(crate) use crate::print;
+    pub(crate) use crate::{print, println};
 }
 
 // load assembly file and do init

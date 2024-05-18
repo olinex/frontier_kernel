@@ -10,7 +10,7 @@ use frontier_fs::OpenFlags;
 // use self mods
 use crate::fs::inode::ROOT_INODE;
 use crate::prelude::*;
-use crate::task::{exit_current_and_run_other_task, PROCESSOR, TASK_CONTROLLER};
+use crate::task::{exit_current_and_run_other_task, PROCESSOR, TASK_SCHEDULER};
 
 /// Task exits and submit an exit code
 ///
@@ -27,7 +27,7 @@ pub(crate) fn sys_exit(exit_code: i32) -> ! {
 #[inline(always)]
 pub(crate) fn sys_get_pid() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
-    Ok(current_task.pid() as isize)
+    Ok(current_task.process().pid() as isize)
 }
 
 /// Fork a new children process from the parent process,
@@ -40,23 +40,23 @@ pub(crate) fn sys_get_pid() -> Result<isize> {
 ///
 /// - Errors
 ///     - ProcessHaveNotTask
-///     
 #[inline(always)]
 pub(crate) fn sys_fork() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
-    let new_task = current_task.fork()?;
-    let new_inner = new_task.inner_access();
-    let trap_ctx = new_inner.trap_ctx()?;
-    // for child process, fork returns 0
-    trap_ctx.set_arg(0, 0);
-    drop(new_inner);
-    let pid = new_task.pid();
-    TASK_CONTROLLER.add_task(new_task);
-    debug!(
-        "Task {} pid: {} created successfully by fork()",
-        current_task.name(),
-        pid
-    );
+    let new_process = current_task.fork_process()?;
+    let new_process_inner = new_process.inner_access();
+    let new_root_task = new_process_inner.root_task();
+    let new_task_inner = new_root_task.inner_access();
+    new_task_inner.modify_trap_ctx(new_process_inner.space(), |trap_ctx| {
+        // for child process, fork returns 0
+        trap_ctx.set_arg(0, 0);
+        Ok(())
+    })?;
+    drop(new_task_inner);
+    drop(new_process_inner);
+    let pid = new_process.pid();
+    TASK_SCHEDULER.add_task(new_root_task);
+    debug!("Process: {} created successfully by fork()", pid);
     Ok(pid as isize)
 }
 
@@ -66,7 +66,7 @@ pub(crate) fn sys_fork() -> Result<isize> {
 ///
 /// If the task isn't exists, it will return error code(-1)
 /// or this function will always return the count of return back string pointer in user stack(2)
-/// 
+///
 /// - Arguments
 ///     - path_ptr: The pointer address that path of the task which should be run in the current process
 ///     - args_ptr: The pointer address that string of the command line arguments
@@ -88,9 +88,13 @@ pub(crate) fn sys_fork() -> Result<isize> {
 #[inline(always)]
 pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let inner = task.inner_access();
-    let current_space = inner.space();
+    let process = task.process();
+    let process_inner = process.inner_access();
+    let current_space = process_inner.space();
     let path = current_space.translated_string(path_ptr)?;
+    if path.is_empty() {
+        return Err(KernelError::FileDoesNotExists(path));
+    }
     let args = current_space.translated_string(args_ptr)?;
     let file = ROOT_INODE.find(&path, OpenFlags::READ)?;
     let data = file.read_all()?;
@@ -100,8 +104,9 @@ pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize
         data.len()
     );
     drop(file);
-    drop(inner);
-    Ok(task.exec(&data, path, args)? as isize)
+    drop(process_inner);
+    drop(process);
+    Ok(task.exec(path, &data, args)? as isize)
 }
 
 /// Wait children process becomes a zombie process, reclaim all its resources, and collect its return value
@@ -115,11 +120,12 @@ pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize
 /// - Returns
 ///     - -1: task does not exist
 ///     - -2: task is still alive
-/// 
+///
 /// - Errors
 ///     - ProcessHaveNotTask
 #[inline(always)]
 pub(crate) fn sys_wait_pid(pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    task.wait(pid, exit_code_ptr)
+    let process = task.process();
+    process.wait_pid(pid, exit_code_ptr)
 }

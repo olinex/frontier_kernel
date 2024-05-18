@@ -39,6 +39,9 @@ pub(crate) fn syscall(syscall_id: usize, arg1: usize, arg2: usize, arg3: usize) 
         sysid::FORK => process::sys_fork(),
         sysid::EXEC => process::sys_exec(arg1 as *const u8, arg2 as *const u8),
         sysid::WAIT_PID => process::sys_wait_pid(arg1 as isize, arg2 as *mut i32),
+        sysid::THREAD_CREATE => task::sys_thread_create(arg1, arg2),
+        sysid::GET_TID => task::sys_get_tid(),
+        sysid::WAIT_TID => task::sys_wait_tid(arg1 as isize, arg2 as *mut i32),
         _ => Err(KernelError::InvaidSyscallId(syscall_id)),
     }
 }

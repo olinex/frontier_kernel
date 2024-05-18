@@ -2,6 +2,7 @@
 //! among which the context switching of virtual page tables and tasks is the most complex.
 //! We try to explain the process as briefly as possible with flowcharts and corresponding notes:
 //!
+//! ```
 //!    <-- (0) [`crate::trap::init`]
 //!   |        * Make trap handler disabled
 //!   |        * Make kernel virtual address space activate
@@ -27,6 +28,7 @@
 //!   |        * restore sstatus/sepc/other generated registers
 //!   |        * swtich stack to current task's user stack
 //!   |        * Jump to current task's entry point
+//! ```
 
 // @author:    olinex
 // @time:      2023/09/01
@@ -34,8 +36,9 @@
 // self mods
 mod allocator;
 mod context;
-mod control;
+mod model;
 mod process;
+mod scheduler;
 mod switch;
 
 // use other mods
@@ -45,7 +48,8 @@ use frontier_lib::model::signal::Signal;
 use crate::prelude::*;
 
 // reexports
-pub(crate) use process::{PROCESSOR, TASK_CONTROLLER};
+pub(crate) use process::PROCESSOR;
+pub(crate) use scheduler::TASK_SCHEDULER;
 
 /// This method allows the multitasking system to start really running,
 /// which is the engine ignition switch
@@ -81,6 +85,5 @@ pub(crate) fn handle_current_task_signals() -> Result<Option<Signal>> {
 
 #[inline(always)]
 pub(crate) fn init() {
-    control::init_pid_allocator();
     process::add_init_proc();
 }

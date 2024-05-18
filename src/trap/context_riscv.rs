@@ -102,17 +102,19 @@ cfg_if! {
             }
 
             /// init app context
-            /// @entry: application code entry point memory address
-            /// @user_stack_top_va:  the virtual address of the user stack in the user space
-            /// @kernel_stack_top_va: the virtual address of the kernel task stack in the kernel space
-            pub(crate) fn create_app_init_context(entry: usize, user_stack_top_va: usize, kernel_stack_top_va: usize) -> Self {
+            /// 
+            /// - Arguments
+            ///     - entry_point: application code entry point memory address
+            ///     - user_stack_top_va:  the virtual address of the user stack in the user space
+            ///     - kernel_stack_top_va: the virtual address of the kernel task stack in the kernel space
+            pub(crate) fn create_app_init_context(entry_point: usize, user_stack_top_va: usize, kernel_stack_top_va: usize) -> Self {
                 // for app context, the supervisor previous privilege mode must be user
                 let mut sts = Self::read_sstatus_bits();
                 sts.set_bit(SSTATUS_SPP_POSITION, false);
                 let mut ctx = Self {
                     x: [0; 32],
                     sstatus: sts,
-                    sepc: entry,
+                    sepc: entry_point,
                     kernel_mmu_token: space::KERNEL_SPACE.access().mmu_token(),
                     trap_handler_va: handler::trap_handler as usize,
                     kernel_sp_va: kernel_stack_top_va,

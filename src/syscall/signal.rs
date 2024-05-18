@@ -8,7 +8,7 @@ use frontier_lib::model::signal::{Signal, SignalAction, SignalFlags};
 
 // use self mods
 use crate::prelude::*;
-use crate::task::{PROCESSOR, TASK_CONTROLLER};
+use crate::task::{PROCESSOR, TASK_SCHEDULER};
 
 /// Send a signal to other(but also self) process.
 ///
@@ -22,9 +22,9 @@ use crate::task::{PROCESSOR, TASK_CONTROLLER};
 #[inline(always)]
 pub(crate) fn sys_kill(pid: isize, signum: usize) -> Result<isize> {
     let signal: Signal = signum.try_into()?;
-    if let Some(task) = TASK_CONTROLLER.get(pid) {
-        debug!("Try to kill {} with signal {:?}", task.pid(), signal);
-        if let Err(_) = task.kill(signal) {
+    if let Some(process) = TASK_SCHEDULER.get_process(pid) {
+        debug!("Try to kill process {} with signal {:?}", process.pid(), signal);
+        if let Err(_) = process.kill(signal) {
             Ok(-1)
         } else {
             Ok(0)
@@ -66,13 +66,15 @@ pub(crate) fn sys_sig_action(
         return Ok(-1);
     };
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    let space = inner.space();
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    let space = process_inner.space();
     let new_action = space.translated_refmut(new_action)?.clone();
     let old_action = space.translated_refmut(old_action)?;
-    *old_action = inner.get_signal_action(signal);
-    inner.set_signal_action(signal, new_action);
-    debug!("Set action {:?} in process {} with signal {:?}", new_action, task.pid(), signal);
+    let process = task.process();
+    *old_action = process_inner.get_signal_action(signal);
+    process_inner.set_signal_action(signal, new_action);
+    debug!("Set action {:?} in process {} with signal {:?}", new_action, process.pid(), signal);
     Ok(0)
 }
 
@@ -86,10 +88,11 @@ pub(crate) fn sys_sig_action(
 #[inline(always)]
 pub(crate) fn sys_sig_proc_mask(mask: u32) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    let old_mask = inner.get_singal_mask();
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    let old_mask = process_inner.get_singal_mask();
     if let Some(mask) = SignalFlags::from_bits(mask) {
-        inner.set_singal_mask(mask);
+        process_inner.set_singal_mask(mask);
         Ok(old_mask.bits() as isize)
     } else {
         Ok(-1)
@@ -103,6 +106,7 @@ pub(crate) fn sys_sig_proc_mask(mask: u32) -> Result<isize> {
 #[inline(always)]
 pub(crate) fn sys_sig_return() -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    inner.signal_return()
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    process_inner.signal_return()
 }

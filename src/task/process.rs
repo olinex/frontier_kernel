@@ -8,14 +8,15 @@ use alloc::sync::Arc;
 
 // use self mods
 use super::context::TaskContext;
-use super::control::{TaskController, TaskMeta};
+use super::model::{TaskControlBlock, INIT_TASK};
+use super::scheduler::TASK_SCHEDULER;
 use super::{switch, Signal};
 use crate::lang::container::UserPromiseRefCell;
 use crate::{configs, prelude::*};
 
 /// Keep the current running task the processor structure
 pub(crate) struct Processor {
-    current: Option<Arc<TaskMeta>>,
+    current: Option<Arc<TaskControlBlock>>,
     idle_task_ctx: TaskContext,
 }
 impl Processor {
@@ -28,45 +29,13 @@ impl Processor {
     }
 
     /// Get the current task's clone
-    fn current(&self) -> Option<Arc<TaskMeta>> {
-        self.current.as_ref().map(|meta| Arc::clone(meta))
+    fn current(&self) -> Option<Arc<TaskControlBlock>> {
+        self.current.as_ref().map(|block| Arc::clone(block))
     }
 
     /// Get the mutable pointer of the idle task context
     fn get_idle_task_ctx_ptr(&mut self) -> *mut TaskContext {
         &mut self.idle_task_ctx as *mut _
-    }
-}
-
-lazy_static! {
-    /// The global visibility task controller which will load all tasks's code and create virtual address space lazily.
-    pub(crate) static ref TASK_CONTROLLER: Arc<UserPromiseRefCell<TaskController>> = {
-        Arc::new(unsafe {UserPromiseRefCell::new(TaskController::new())})
-    };
-}
-impl TASK_CONTROLLER {
-    pub(crate) fn task_count(&self) -> usize {
-        self.access().len()
-    }
-
-    pub(crate) fn add_task(&self, task: Arc<TaskMeta>) {
-        self.exclusive_access().put(task);
-    }
-
-    pub(crate) fn fetch_task(&self) -> Option<Arc<TaskMeta>> {
-        self.exclusive_access().fetch()
-    }
-
-    pub(crate) fn get(&self, pid: isize) -> Option<Arc<TaskMeta>> {
-        if let Ok(task) = PROCESSOR.current_task() {
-            if pid < 0 || task.pid() == pid as usize {
-                Some(Arc::clone(&task))
-            } else {
-                None
-            }
-        } else {
-            self.access().get(pid as usize)
-        }
     }
 }
 
@@ -79,8 +48,8 @@ impl PROCESSOR {
     ///
     /// - Errors
     ///     - ProcessHaveNotTask
-    pub(crate) fn current_task(&self) -> Result<Arc<TaskMeta>> {
-        self.exclusive_access()
+    pub(crate) fn current_task(&self) -> Result<Arc<TaskControlBlock>> {
+        self.access()
             .current()
             .ok_or(KernelError::ProcessHaveNotTask)
     }
@@ -99,8 +68,11 @@ impl PROCESSOR {
     #[inline(always)]
     pub(crate) fn schedule(&self) -> ! {
         loop {
-            let mut processor = self.exclusive_access();
-            if let Some(task) = TASK_CONTROLLER.fetch_task() {
+            if let Some(task) = TASK_SCHEDULER.fetch_task() {
+                if task.is_zombie() {
+                    continue;
+                }
+                let mut processor = self.exclusive_access();
                 let idle_task_cx_ptr = processor.get_idle_task_ctx_ptr();
                 let next_task_cx_ptr = task.task_ctx_ptr();
                 task.mark_running();
@@ -121,10 +93,10 @@ impl PROCESSOR {
     ///     - ProcessHaveNotTask
     pub(crate) fn suspend_current_and_run_other_task(&self) -> Result<()> {
         let processor = self.access();
-        if let Some(meta) = &processor.current {
-            meta.mark_suspended();
-            TASK_CONTROLLER.add_task(Arc::clone(meta));
-            let task_ctx_ptr = meta.task_ctx_ptr() as *mut TaskContext;
+        if let Some(task) = &processor.current {
+            task.mark_suspended();
+            TASK_SCHEDULER.add_task(Arc::clone(task));
+            let task_ctx_ptr = task.task_ctx_ptr() as *mut TaskContext;
             drop(processor);
             self.switch(task_ctx_ptr);
             Ok(())
@@ -142,13 +114,15 @@ impl PROCESSOR {
     /// - Errors
     ///     - ProcessHaveNotTask
     pub(crate) fn exit_current_and_run_other_task(&self, exit_code: i32) -> Result<()> {
-        debug!(
-            "exit current task, still {} tasks",
-            TASK_CONTROLLER.task_count()
-        );
         let processor = self.access();
-        if let Some(meta) = &processor.current {
-            meta.mark_zombie(exit_code);
+        if let Some(task) = &processor.current {
+            debug!(
+                "exit current task {} from process {}, still {} tasks",
+                task.tid(),
+                task.process().pid(),
+                TASK_SCHEDULER.task_count()
+            );
+            task.mark_zombie(exit_code);
             drop(processor);
             let mut unused = TaskContext::empty();
             self.switch(&mut unused as *mut _);
@@ -159,30 +133,30 @@ impl PROCESSOR {
     }
 
     /// Send signal to current task.
-    /// 
+    ///
     /// - Arguments
     ///     - signal: which signal will be setted
-    /// 
+    ///
     /// - Errors
     ///     - ProcessHaveNotTask
     ///     - DuplicateSignal(signal)
     pub(crate) fn send_current_task_signal(&self, signal: Signal) -> Result<()> {
         let processor = self.access();
-        if let Some(meta) = &processor.current {
-            meta.kill(signal)
+        if let Some(task) = &processor.current {
+            task.process().kill(signal)
         } else {
             Err(KernelError::ProcessHaveNotTask)
         }
     }
 
-    /// All received signals are processed until all signals have been processed, 
+    /// All received signals are processed until all signals have been processed,
     /// or the current service needs to be terminated/suspended
-    /// 
+    ///
     /// - Returns
     ///     - Ok(None): every signal was been handled and return back to user-mode
     ///     - Ok(Some(signal)): the signal is not completely silent
     ///     - Err(error): get something wrong when handling signal
-    /// 
+    ///
     /// - Errors
     ///     - ProcessHaveNotTask
     ///     - AreaNotExists(start_vpn, end_vpn)
@@ -190,28 +164,26 @@ impl PROCESSOR {
     pub(crate) fn handle_current_task_signals(&self) -> Result<Option<Signal>> {
         loop {
             let processor = self.access();
-            if let Some(meta) = &processor.current {
-                let (killed, frozen) = meta.handle_all_signals()?;
+            if let Some(task) = &processor.current {
+                let process = task.process();
+                let (killed, frozen) = process.handle_all_signals()?;
                 if !frozen || killed {
                     break;
                 };
+                drop(process);
                 drop(processor);
                 self.suspend_current_and_run_other_task()?;
             } else {
-                return Err(KernelError::ProcessHaveNotTask)
+                return Err(KernelError::ProcessHaveNotTask);
             }
         }
         let processor = self.access();
-        if let Some(meta) = &processor.current {
-            Ok(meta.check_bad_signals())
+        if let Some(task) = &processor.current {
+            Ok(task.process().check_bad_signals())
         } else {
             Err(KernelError::ProcessHaveNotTask)
         }
     }
-}
-
-lazy_static! {
-    pub(crate) static ref INITPROC: Arc<TaskMeta> = TaskMeta::new_init_proc().unwrap();
 }
 
 /// Add a initial process to the task queue.
@@ -221,5 +193,5 @@ pub(crate) fn add_init_proc() {
         "adding initial task {} to task queue",
         configs::INIT_PROCESS_PATH
     );
-    TASK_CONTROLLER.add_task(Arc::clone(&INITPROC));
+    TASK_SCHEDULER.add_task(Arc::clone(&INIT_TASK));
 }

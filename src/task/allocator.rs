@@ -5,80 +5,113 @@
 
 // use other mods
 use alloc::collections::BTreeSet;
+use alloc::sync::{Arc, Weak};
+use spin::mutex::Mutex;
 
 // use self mods
 use crate::lang::error::KernelError;
 use crate::prelude::*;
 
-//// A pid allocation manager.
-/// which will keep all pid in control.
-pub(crate) struct BTreePidAllocator {
-    /// not yet allocated proccess id
-    current_pid: usize,
-    /// end process id, which will not be allocated
-    end_pid: usize,
-    /// a set of pids those have been release but not yet allocated
+//// An allocation manager.
+/// which will keep all id in control.
+pub(crate) struct BTreeIdAllocator {
+    /// not yet allocated id
+    current_id: usize,
+    /// max id, which can not be allocated
+    max_id: usize,
+    /// a set of ids those have been release but not yet allocated
     recycled: BTreeSet<usize>,
 }
-impl BTreePidAllocator {
-    /// Create a new allocator
-    pub(crate) fn new() -> Self {
+impl BTreeIdAllocator {
+    /// Create a new id allocator.
+    /// The first id is 0.
+    /// 
+    /// - Arguments
+    ///     - max_id: the max id which can not be allocated 
+    pub(crate) fn new(max_id: usize) -> Self {
         Self {
-            current_pid: 0,
-            end_pid: usize::MAX,
+            current_id: 0,
+            max_id,
             recycled: BTreeSet::new(),
         }
     }
 
-    /// Get current allocable proccess id
-        pub(crate) fn current_pid(&self) -> usize {
-        self.current_pid
-    }
-
-    /// Get the end of process id
-        pub(crate) fn end_pid(&self) -> usize {
-        self.end_pid
-    }
-
-    /// Initialize a new BTreePidAllocator
-    ///
-    /// - Arguments
-    ///     - current_pid: the current process id which will be used in next time allocating
-    ///     - end_pid: the end of process id which will not be used
-    pub(crate) fn init(&mut self, current_pid: usize, end_pid: usize) {
-        assert!(current_pid < end_pid);
-        self.current_pid = current_pid;
-        self.end_pid = end_pid;
-    }
-
-    /// Alloc a new process id
+    /// Alloc a new id
     ///
     /// - Errors
-    ///     - PidExhausted
+    ///     - IdExhausted
     pub(crate) fn alloc(&mut self) -> Result<usize> {
-        if let Some(pid) = self.recycled.pop_first() {
-            Ok(pid)
+        if let Some(id) = self.recycled.pop_first() {
+            Ok(id)
         } else {
-            let pid = self.current_pid;
-            if pid >= self.end_pid {
-                Err(KernelError::PidExhausted)
+            let id = self.current_id;
+            if id >= self.max_id {
+                Err(KernelError::IdExhausted)
             } else {
-                self.current_pid += 1;
-                Ok(pid)
+                self.current_id += 1;
+                Ok(id)
             }
         }
     }
 
-    /// Dealloc a process id
+    /// Dealloc a id
+    /// 
+    /// - Arguments
+    ///     - pid: the unique id which will be dealloc
     ///
     /// - Errors
-    ///     - PidNotDeallocable(pid)
-    pub(crate) fn dealloc(&mut self, pid: usize) -> Result<()> {
-        if pid >= self.current_pid || !self.recycled.insert(pid) {
-            Err(KernelError::PidNotDeallocable(pid))
+    ///     - IdNotDeallocable(id)
+    pub(crate) fn dealloc(&mut self, id: usize) -> Result<()> {
+        if id >= self.current_id || !self.recycled.insert(id) {
+            Err(KernelError::IdNotDeallocable(id))
         } else {
             Ok(())
         }
+    }
+}
+
+/// Id tracker maintains the life cycle of the id and returns the id to the id allocator when the tracker is released.
+pub(crate) struct IdTracker {
+    id: usize,
+    allocator: Weak<Mutex<BTreeIdAllocator>>,
+}
+impl IdTracker {
+    #[inline(always)]
+    pub(crate) fn id(&self) -> usize {
+        self.id
+    }
+}
+impl Drop for IdTracker {
+    fn drop(&mut self) {
+        if let Some(allocator) = self.allocator.upgrade() {
+            allocator.lock().dealloc(self.id).unwrap()
+        }
+    }
+}
+
+/// The id allocator which returning id tracker instand of returning raw id.
+/// So using the allocator can make you have the ability to recycle id automatically.
+pub(crate) struct AutoRecycledIdAllocator(Arc<Mutex<BTreeIdAllocator>>);
+impl AutoRecycledIdAllocator {
+    /// Create a new allocator.
+    /// The id of the first tracker is 0.
+    /// 
+    /// - Arguments
+    ///     - max_id: the max id which can not be allocated 
+    pub(crate) fn new(max_id: usize) -> Self {
+        Self(Arc::new(Mutex::new(BTreeIdAllocator::new(max_id))))
+    }
+
+    /// Alloc a new id tracker
+    /// 
+    /// - Returns
+    ///     - Ok(id tracker)
+    /// 
+    /// - Errors
+    ///     - IdExhausted
+    pub(crate) fn alloc(&self) -> Result<IdTracker> {
+        let id = self.0.lock().alloc()?;
+        Ok( IdTracker { id, allocator: Arc::downgrade(&self.0)})
     }
 }
 
@@ -88,18 +121,17 @@ mod tests {
 
     #[test_case]
     fn test_frame_allocator_alloc_and_dealloc() {
-        let mut allocator = BTreePidAllocator::new();
-        allocator.init(0, 1);
-        assert_eq!(allocator.current_pid, 0);
-        assert_eq!(allocator.end_pid, 1);
+        let mut allocator = BTreeIdAllocator::new(1);
+        assert_eq!(allocator.current_id, 0);
+        assert_eq!(allocator.max_id, 1);
         assert!(allocator.alloc().is_ok_and(|t| t == 0));
-        assert_eq!(allocator.current_pid, 1);
-        assert_eq!(allocator.end_pid, 1);
-        assert!(allocator.alloc().is_err_and(|t| t.is_pidexhausted()));
+        assert_eq!(allocator.current_id, 1);
+        assert_eq!(allocator.max_id, 1);
+        assert!(allocator.alloc().is_err_and(|t| t.is_idexhausted()));
         assert!(allocator.dealloc(0).is_ok());
         assert!(allocator.alloc().is_ok_and(|t| t == 0));
-        assert_eq!(allocator.current_pid, 1);
-        assert_eq!(allocator.end_pid, 1);
-        assert!(allocator.alloc().is_err_and(|t| t.is_pidexhausted()));
+        assert_eq!(allocator.current_id, 1);
+        assert_eq!(allocator.max_id, 1);
+        assert!(allocator.alloc().is_err_and(|t| t.is_idexhausted()));
     }
 }

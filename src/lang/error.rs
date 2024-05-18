@@ -18,6 +18,14 @@ pub(crate) enum KernelError {
     #[error("End of Buffer")]
     EOB,
 
+    #[groups(base)]
+    #[error("Id exhausted")]
+    IdExhausted,
+
+    #[groups(base)]
+    #[error("Id not deallocable")]
+    IdNotDeallocable(usize),
+
     #[groups(syscall)]
     #[error("Invalid syscall id: {0}")]
     InvaidSyscallId(usize),
@@ -91,16 +99,16 @@ pub(crate) enum KernelError {
     UnloadableTask,
 
     #[groups(process)]
-    #[error("Process id exhausted")]
-    PidExhausted,
-
-    #[groups(process)]
-    #[error("Process id not deallocable")]
-    PidNotDeallocable(usize),
-
-    #[groups(process)]
     #[error("Process have not task")]
     ProcessHaveNotTask,
+
+    #[groups(process)]
+    #[error("Fork with no root task {0}")]
+    ForkWithNoRootTask(usize),
+
+    #[groups(process)]
+    #[error("Exec other code in multi task process {0}")]
+    ExecWithMultiTasks(usize),
 
     #[groups(fs)]
     #[error("Invalid open flags {0:#x}")]

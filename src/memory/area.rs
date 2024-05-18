@@ -73,7 +73,7 @@ impl PageRangeTracker {
     }
 
     /// Check the is one of the page number in the page range
-    /// 
+    ///
     /// - Errors
     ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
     pub(crate) fn check(&self, vpn: usize) -> Result<()> {
@@ -122,12 +122,12 @@ impl Area {
     ///
     /// - Errors
     ///     - AreaAllocFailed(start_vpn, end_vpn)
-    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn) 
-    ///     - VPNAlreadyMapped(vpn) 
-    ///     - InvaidPageTablePerm(flags) 
-    ///     - FrameExhausted 
-    ///     - AllocFullPageMapper(ppn) 
-    ///     - PPNAlreadyMapped(ppn) 
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
     ///     - PPNNotMapped(ppn)
     pub(crate) fn new(
         start_vpn: usize,
@@ -159,12 +159,12 @@ impl Area {
     ///
     /// - Errors
     ///     - AreaAllocFailed(start_vpn, end_vpn)
-    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn) 
-    ///     - VPNAlreadyMapped(vpn) 
-    ///     - InvaidPageTablePerm(flags) 
-    ///     - FrameExhausted 
-    ///     - AllocFullPageMapper(ppn) 
-    ///     - PPNAlreadyMapped(ppn) 
+    ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+    ///     - VPNAlreadyMapped(vpn)
+    ///     - InvaidPageTablePerm(flags)
+    ///     - FrameExhausted
+    ///     - AllocFullPageMapper(ppn)
+    ///     - PPNAlreadyMapped(ppn)
     ///     - PPNNotMapped(ppn)
     pub(crate) fn from_another(
         another: &Self,
@@ -183,7 +183,36 @@ impl Area {
             page_table: Arc::clone(page_table),
         };
         area.map()?;
+        area.copy_another(another)?;
         Ok(area)
+    }
+
+    /// Copy another area's bytes to current area
+    ///
+    /// - Arguments
+    ///     - another: another area which is to be copied
+    /// 
+    /// - Returns
+    ///     - Ok(copied virtual page count)
+    ///
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
+    pub(crate) fn copy_another(&self, another: &Area) -> Result<usize> {
+        let (src_start_vpn, src_end_vpn) = another.range();
+        let (dst_start_vpn, dst_end_vpn) = self.range();
+        let src_offset = src_end_vpn - src_start_vpn;
+        let dst_offset = dst_end_vpn - dst_start_vpn;
+        let count = if src_offset >= dst_offset {
+            dst_offset
+        } else {
+            src_offset
+        };
+        for offset in 0..count {
+            let src = another.get_byte_array(src_start_vpn + offset)?;
+            let dst = self.get_byte_array(dst_start_vpn + offset)?;
+            dst.copy_from_slice(src);
+        }
+        Ok(count)
     }
 
     /// In the same memory space, the tuple of the page range start and end virutal page number is unique,
@@ -238,8 +267,8 @@ impl Area {
     ///
     /// - Errors
     ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
-    ///     - VPNNotMapped(vpn) 
-    ///     - PPNNotMapped(ppn) 
+    ///     - VPNNotMapped(vpn)
+    ///     - PPNNotMapped(ppn)
     ///     - DeallocEmptyPageMapper(ppn)
     fn unmap_one(&mut self, vpn: usize) -> Result<usize> {
         self.page_range_tracker.check(vpn)?;
@@ -256,7 +285,7 @@ impl Area {
     }
 
     /// Map all virtual pages
-    /// 
+    ///
     /// - Errors
     ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
     ///     - VPNAlreadyMapped(vpn)
@@ -273,11 +302,11 @@ impl Area {
     }
 
     /// Unallocate all virtual pages
-    /// 
+    ///
     /// - Errors
     ///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
-    ///     - VPNNotMapped(vpn) 
-    ///     - PPNNotMapped(ppn) 
+    ///     - VPNNotMapped(vpn)
+    ///     - PPNNotMapped(ppn)
     ///     - DeallocEmptyPageMapper(ppn)
     fn unmap(&mut self) -> Result<()> {
         for vpn in self.page_range_tracker.page_range() {
@@ -331,7 +360,7 @@ impl Area {
     /// - Arguments
     ///     - offset: The byte offset from the beginning of the first virtual page
     ///     - data: The byte data to be written
-    /// 
+    ///
     /// - Errors
     ///     - VPNNotMapped(vpn)
     pub(crate) fn write_multi_pages(&mut self, offset: usize, data: &[u8]) -> Result<()> {

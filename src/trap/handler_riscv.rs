@@ -12,7 +12,7 @@ use riscv::register::{
 };
 
 // use self mods
-use crate::lang::timer;
+use crate::{lang::timer, println, task::PROCESSOR};
 use crate::sbi::*;
 use crate::syscall::syscall;
 use crate::{configs, task};
@@ -42,7 +42,11 @@ pub(crate) fn set_user_trap_entry() {
 #[no_mangle]
 #[inline(always)]
 pub(crate) fn trap_from_kernel() -> ! {
-    panic!("a trap from kernel!");
+    let current_task = PROCESSOR.current_task().unwrap();
+    let process = current_task.process();
+    let pid = process.pid();
+    let tid = current_task.tid();
+    panic!("a trap from kernel with process {}'s task {}!", pid, tid);
 }
 
 cfg_if! {
@@ -54,15 +58,16 @@ cfg_if! {
         // this symbol was point to some assembly code that does two main things:
         // 1 save all registers
         // 2 call trap_handler and pass user stack
-
         #[no_mangle]
         #[inline(always)]
         pub(crate) fn trap_return() -> ! {
             set_user_trap_entry();
             let trap_ctx_va = configs::TRAP_CTX_VIRTUAL_BASE_ADDR;
             let task = task::PROCESSOR.current_task().unwrap();
-            let user_mmu_token = task.user_token();
+            let process = task.process();
+            let user_mmu_token = process.user_token();
             drop(task);
+            drop(process);
             extern "C" {
                 fn _fn_save_all_registers_before_trap();
                 fn _fn_restore_all_registers_after_trap();
@@ -95,24 +100,34 @@ cfg_if! {
                     // we must drop the controller and trap context's reference immediately,
                     // because in syscall function will borrow it too soon
                     let task = task::PROCESSOR.current_task().unwrap();
-                    let inner = task.inner_access();
-                    let ctx = inner.trap_ctx().unwrap();
-                    let syscall_id = ctx.get_arg(7);
-                    let arg1 = ctx.get_arg(0);
-                    let arg2 = ctx.get_arg(1);
-                    let arg3 = ctx.get_arg(2);
-                    ctx.sepc_to_next_instruction();
-                    drop(inner);
-                    drop(task);
+                    let task_inner = task.inner_access();
+                    let process = task.process();
+                    let process_inner = process.inner_access();
+                    let (syscall_id, arg1, arg2, arg3) = task_inner.modify_trap_ctx(process_inner.space(), |trap_ctx| {
+                        let syscall_id = trap_ctx.get_arg(7);
+                        let arg1 = trap_ctx.get_arg(0);
+                        let arg2 = trap_ctx.get_arg(1);
+                        let arg3 = trap_ctx.get_arg(2);
+                        trap_ctx.sepc_to_next_instruction();
+                        Ok((syscall_id, arg1, arg2, arg3))
+                    }).unwrap();
+                    drop(process_inner);
+                    drop(task_inner);
+                    drop(process);
                     match syscall(syscall_id, arg1, arg2, arg3) {
                         Ok(return_back) => {
+                            let process = task.process();
+                            let process_inner = process.inner_access();
                             let task = task::PROCESSOR.current_task().unwrap();
-                            let inner = task.inner_access();
-                            let ctx = inner.trap_ctx().unwrap();
-                            ctx.set_arg(0, return_back as usize);
+                            let task_inner = task.inner_access();
+                            task_inner.modify_trap_ctx(process_inner.space(), |trap_ctx| {
+                                trap_ctx.set_arg(0, return_back as usize);
+                                Ok(())
+                            }).unwrap();
                         },
                         Err(error) => {
-                            error!("Syscall fault cause: {}", error);
+                            drop(task);
+                            error!("Syscall {} fault cause: {}", syscall_id, error);
                             task::exit_current_and_run_other_task(-1).unwrap();
                         }
                     }
@@ -124,7 +139,7 @@ cfg_if! {
                 | Exception::InstructionPageFault
                 | Exception::LoadFault
                 | Exception::LoadPageFault => {
-                    error!("PageFault in application, kernel send signal.");
+                    error!("Fault {:?} in application, kernel send signal.", exception);
                     task::send_current_task_signal(SignalFlags::SEGV.trunc()).unwrap()
                 }
                 // apllcation run some illegal instruction

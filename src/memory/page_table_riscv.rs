@@ -21,12 +21,14 @@ const OFFSET_RANGE: Range<usize> = 0..12;
 
 /// Page table entry(PTE)
 /// Each page table have 512 PTE, each PTE have 64 bits
-///
+/// 
 /// Page table entry binary composition structure
+/// ```
 /// ----------------------------------------------------------------
 /// |   10   ||                   44                     |  |  08  |
 /// |reversed||                  ppn                     |  | flag  |
 /// ----------------------------------------------------------------
+/// ```
 const PTE_BYTE_SIZE: usize = 8;
 const PTE_OFFSET_BIT_SIZE: usize = 9;
 const PTE_COUNT: usize = configs::MEMORY_PAGE_BYTE_SIZE / PTE_BYTE_SIZE;
@@ -34,10 +36,12 @@ const PTE_FLAGS_RANGE: Range<usize> = 0..8;
 const PTE_PPN_RANGE: Range<usize> = 10..54;
 
 /// Memory manager unit binary composition structure
+/// ```
 /// ----------------------------------------------------------------
 /// |04||      16      ||                  44                      |
 /// |mo||     asid     ||                  ppn                     |
 /// ----------------------------------------------------------------
+/// ```
 const MMU_PPN_RANGE: Range<usize> = 0..44;
 const MMU_ASID_RANGE: Range<usize> = 44..60;
 const MMU_MODE_RANGE: Range<usize> = 60..64;
@@ -50,17 +54,21 @@ cfg_if! {
         const MMU_MODE: Mode = Mode::Sv39;
         const PAGE_LEVEL: usize = 3;
         /// Virtual address binary composition structure
+        /// ```
         /// ----------------------------------------------------------------
         /// |                       ||   9   ||   9   ||   9   ||    12    |
         /// |       reversed        || ppn03 || ppn02 || ppn01 ||  offset  |
         /// ----------------------------------------------------------------
+        /// ```
         const VA_PN_RANGE: Range<usize> = 12..39;
         const VA_RESERVED_RANGE: Range<usize> = 39..64;
         /// Physical address binary composition structure
+        /// ```
         /// ----------------------------------------------------------------
         /// |      ||                   44                     ||    12    |
         /// | reve ||                  ppn                     ||  offset  |
         /// ----------------------------------------------------------------
+        /// ```
         const PA_PN_RANGE: Range<usize> = 12..56;
     } else {
         compile_error!("Unsupported address mmu mode for riscv");

@@ -19,12 +19,14 @@ use crate::lang::error::*;
 /// Each interval indicates that it has been occupied or can be applied for.
 /// Therefore, two consecutive intervals must not be occupied or available at the same time.
 /// For example: [1, 16)
+/// ```
 /// | 1| 2| 3| 4| 5| 6| 7| 8| 9| 10| 11| 12| 13| 14| 15| 16|
 /// |                all have been occupied                | <- this is ok
 /// |                   all is available                   | <- this is ok
 /// |     occupied       |            available            | <- this is ok
 /// |     occupied       |    available    |    occupied   | <- this is ok
 /// |     occupied       |    occupied    |    available   | <- this is bad!!!
+/// ```
 pub(crate) struct PageNode {
     /// When used is true, it mean that the interval [current page, next page) is occupied
     used: bool,
@@ -52,6 +54,7 @@ impl PageNode {
     /// Link two nodes together.
     /// The linking process is little complicated, we want to link node4 to node1 as next node.
     /// The steps are as follows:
+    /// ```
     ///       prev node                                                                           next node
     ///       node1(prev: ., next: 2)     node2(prev: 1, next: .)     node3(prev: ., next: 4)     node4(prev: 3, next: .)
     /// step1     |>>>>>>>>>>>>>>>break>>>>>>>>>>>>>>>|
@@ -62,6 +65,8 @@ impl PageNode {
     ///       node1(prev: ., next: 4)     node2(prev: ., next: .)     node3(prev: ., next: .)     node4(prev: 3, next: .)
     /// step4     |------------------------------------------link-------------------------------------------->|
     ///       node1(prev: ., next: 4)     node2(prev: ., next: .)     node3(prev: ., next: .)     node4(prev: 1, next: .)
+    /// ```
+    /// 
     /// - Arguments
     ///     - prev_page_node: the page node which will ahead of the next node
     ///     - next_page_node: the page node which will behind the previous node
@@ -265,16 +270,6 @@ impl BTreeSetFrameAllocator {
             end_ppn: 0,
             recycled: BTreeSet::new(),
         }
-    }
-
-    /// Get current physical page number
-        pub(crate) fn current_ppn(&self) -> usize {
-        self.current_ppn
-    }
-
-    /// Get the end of physical page number
-        pub(crate) fn end_ppn(&self) -> usize {
-        self.end_ppn
     }
 
     /// Initialize a new BTreeSetFrameAllocator

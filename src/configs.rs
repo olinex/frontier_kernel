@@ -19,6 +19,7 @@ pub(crate) const KERNEL_HEAP_BYTE_SIZE: usize = MEMORY_PAGE_BYTE_SIZE * 512;
 pub(crate) const KERNEL_GUARD_PAGE_COUNT: usize = 1;
 pub(crate) const MAX_VIRTUAL_ADDRESS: usize = usize::MAX;
 pub(crate) const MAX_PID_COUNT: usize = 65536;
+pub(crate) const MAX_TID_COUNT: usize = 10240;
 pub(crate) const INIT_PROCESS_PATH: &'static str = "/initproc";
 pub(crate) const TRAMPOLINE_VIRTUAL_BASE_ADDR: usize = MAX_VIRTUAL_ADDRESS - MEMORY_PAGE_BYTE_SIZE + 1;
 pub(crate) const TRAP_CTX_VIRTUAL_BASE_ADDR: usize = TRAMPOLINE_VIRTUAL_BASE_ADDR - MEMORY_PAGE_BYTE_SIZE;

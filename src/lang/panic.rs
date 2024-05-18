@@ -16,7 +16,7 @@ fn panic(info: &PanicInfo) -> ! {
     match (info.location(), info.message()) {
         (Some(loc), Some(msg)) => {
             println!(
-                "[kernel] PANIC AT {}:{}, cause by {}",
+                "[kernel] PANIC AT {}:{}, cause by: {}",
                 loc.file(),
                 loc.line(),
                 msg

@@ -43,11 +43,12 @@ use crate::task::*;
 pub(crate) fn sys_open(path_ptr: *const u8, flags: u32) -> Result<isize> {
     let flags = OpenFlags::from_bits(flags).ok_or(KernelError::InvalidOpenFlags(flags))?;
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    let current_space = inner.space();
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    let current_space = process_inner.space();
     let path = current_space.translated_string(path_ptr)?;
     match ROOT_INODE.find(&path, flags) {
-        Ok(file) => Ok(inner.allc_fd(file)? as isize),
+        Ok(file) => Ok(process_inner.allc_fd(file)? as isize),
         Err(KernelError::FileDoesNotExists(_)) => Ok(-1),
         Err(other) => Err(other),
     }
@@ -67,8 +68,9 @@ pub(crate) fn sys_open(path_ptr: *const u8, flags: u32) -> Result<isize> {
 #[inline(always)]
 pub(crate) fn sys_close(fd: usize) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    if let Ok(_) = inner.dealloc_fd(fd) {
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    if let Ok(_) = process_inner.dealloc_fd(fd) {
         Ok(0)
     } else {
         Ok(-1)
@@ -94,14 +96,15 @@ pub(crate) fn sys_close(fd: usize) -> Result<isize> {
 #[inline(always)]
 pub(crate) fn sys_write(fd: usize, buffer_ptr: *const u8, len: usize) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let inner = task.inner_access();
-    let current_space = inner.space();
+    let process = task.process();
+    let porcess_inner = process.inner_access();
+    let current_space = porcess_inner.space();
     let buffers = current_space.translated_byte_buffers(buffer_ptr, len)?;
-    let file = inner
+    let file = porcess_inner
         .get_file(fd)
         .ok_or(KernelError::FileDescriptorDoesNotExist(fd))?;
     let file = Arc::clone(file);
-    drop(inner);
+    drop(porcess_inner);
     Ok(file.write(buffers)? as isize)
 }
 
@@ -123,14 +126,15 @@ pub(crate) fn sys_write(fd: usize, buffer_ptr: *const u8, len: usize) -> Result<
 pub(crate) fn sys_read(fd: usize, buffer_ptr: *mut u8, len: usize) -> Result<isize> {
     assert!(len > 0);
     let task = PROCESSOR.current_task()?;
-    let inner = task.inner_access();
-    let current_space = inner.space();
+    let process = task.process();
+    let process_inner = process.inner_access();
+    let current_space = process_inner.space();
     let buffers = current_space.translated_byte_buffers(buffer_ptr, len)?;
-    let file = inner
+    let file = process_inner
         .get_file(fd)
         .ok_or(KernelError::FileDescriptorDoesNotExist(fd))?;
     let file = Arc::clone(file);
-    drop(inner);
+    drop(process_inner);
     Ok(file.read(buffers)? as isize)
 }
 
@@ -151,12 +155,13 @@ pub(crate) fn sys_read(fd: usize, buffer_ptr: *mut u8, len: usize) -> Result<isi
 #[inline(always)]
 pub(crate) fn sys_pipe(read_tap_fd_ptr: *mut usize, write_tap_fd_ptr: *mut usize) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
     let read_tap = Pipe::new(PIPE_RING_BUFFER_LENGTH);
     let write_tap = read_tap.writable_fork().unwrap();
-    let read_fd = inner.allc_fd(Arc::new(read_tap))?;
-    let write_fd = inner.allc_fd(Arc::new(write_tap))?;
-    let current_space = inner.space();
+    let read_fd = process_inner.allc_fd(Arc::new(read_tap))?;
+    let write_fd = process_inner.allc_fd(Arc::new(write_tap))?;
+    let current_space = process_inner.space();
     let read_tap_fd = current_space.translated_refmut(read_tap_fd_ptr)?;
     let write_tap_fd = current_space.translated_refmut(write_tap_fd_ptr)?;
     *read_tap_fd = read_fd;
@@ -180,11 +185,12 @@ pub(crate) fn sys_pipe(read_tap_fd_ptr: *mut usize, write_tap_fd_ptr: *mut usize
 #[inline(always)]
 pub(crate) fn sys_dup(fd: usize) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
-    let mut inner = task.inner_exclusive_access();
-    let file = inner
+    let process = task.process();
+    let mut process_inner = process.inner_exclusive_access();
+    let file = process_inner
         .get_file(fd)
         .ok_or(KernelError::FileDescriptorDoesNotExist(fd))?;
     let file = Arc::clone(file);
-    let fd = inner.allc_fd(file)?;
+    let fd = process_inner.allc_fd(file)?;
     Ok(fd as isize)
 }
