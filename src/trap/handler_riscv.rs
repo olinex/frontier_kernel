@@ -4,6 +4,7 @@
 // self mods
 
 // use other mods
+use alloc::sync::Arc;
 use core::arch::{asm, global_asm};
 use frontier_lib::model::signal::SignalFlags;
 use riscv::register::{
@@ -12,10 +13,11 @@ use riscv::register::{
 };
 
 // use self mods
-use crate::{lang::timer, println, task::PROCESSOR};
-use crate::sbi::*;
+use crate::{lang::timer, println};
 use crate::syscall::syscall;
+use crate::task::TASK_SCHEDULER;
 use crate::{configs, task};
+use crate::{memory::space::Space, sbi::*};
 
 // enable the time interrput and the first timer trigger
 // when system was trap with timer interrupt, it will set other trigger by itself
@@ -42,11 +44,10 @@ pub(crate) fn set_user_trap_entry() {
 #[no_mangle]
 #[inline(always)]
 pub(crate) fn trap_from_kernel() -> ! {
-    let current_task = PROCESSOR.current_task().unwrap();
-    let process = current_task.process();
-    let pid = process.pid();
-    let tid = current_task.tid();
-    panic!("a trap from kernel with process {}'s task {}!", pid, tid);
+    println!("a trap from kernel");
+    let scause = scause::read();
+    let stval = stval::read();
+    panic!("cause with {}: {}", scause.bits(), stval);
 }
 
 cfg_if! {
@@ -62,12 +63,12 @@ cfg_if! {
         #[inline(always)]
         pub(crate) fn trap_return() -> ! {
             set_user_trap_entry();
-            let trap_ctx_va = configs::TRAP_CTX_VIRTUAL_BASE_ADDR;
             let task = task::PROCESSOR.current_task().unwrap();
+            let trap_ctx_va = Space::get_task_trap_ctx_bottom_va(task.tid());
             let process = task.process();
             let user_mmu_token = process.user_token();
-            drop(task);
             drop(process);
+            drop(task);
             extern "C" {
                 fn _fn_save_all_registers_before_trap();
                 fn _fn_restore_all_registers_after_trap();
@@ -91,7 +92,6 @@ cfg_if! {
         // 1. application make ecalls to the kernel, handler will dispatch to the syscall
         // 2. some exceptions were thrown, handler will kill the application and continue
         // 3. other exceptions were thrown and the kernel was panic
-        #[inline(always)]
         fn exception_trap_handler(exception: Exception, stval: usize) {
             match exception {
                 // UEE make ecalls
@@ -100,6 +100,7 @@ cfg_if! {
                     // we must drop the controller and trap context's reference immediately,
                     // because in syscall function will borrow it too soon
                     let task = task::PROCESSOR.current_task().unwrap();
+                    assert_eq!(Arc::strong_count(&task), 3);
                     let task_inner = task.inner_access();
                     let process = task.process();
                     let process_inner = process.inner_access();
@@ -112,22 +113,38 @@ cfg_if! {
                         Ok((syscall_id, arg1, arg2, arg3))
                     }).unwrap();
                     drop(process_inner);
-                    drop(task_inner);
                     drop(process);
+                    drop(task_inner);
+                    drop(task);
                     match syscall(syscall_id, arg1, arg2, arg3) {
                         Ok(return_back) => {
-                            let process = task.process();
-                            let process_inner = process.inner_access();
                             let task = task::PROCESSOR.current_task().unwrap();
                             let task_inner = task.inner_access();
+                            let process = task.process();
+                            let process_inner = process.inner_access();
                             task_inner.modify_trap_ctx(process_inner.space(), |trap_ctx| {
                                 trap_ctx.set_arg(0, return_back as usize);
                                 Ok(())
                             }).unwrap();
+                            drop(process_inner);
+                            drop(process);
+                            drop(task_inner);
+                            drop(task);
                         },
                         Err(error) => {
+                            let task = task::PROCESSOR.current_task().unwrap();
+                            let tid = task.tid();
+                            let process = task.process();
+                            let pid = process.pid();
+                            drop(process);
                             drop(task);
-                            error!("Syscall {} fault cause: {}", syscall_id, error);
+                            error!(
+                                "process {}'s task {} syscall {} fault cause: {}",
+                                pid,
+                                tid,
+                                syscall_id,
+                                error
+                            );
                             task::exit_current_and_run_other_task(-1).unwrap();
                         }
                     }
@@ -156,10 +173,10 @@ cfg_if! {
             }
         }
 
-        #[inline(always)]
         fn interrupt_trap_handler(interrupt: Interrupt) {
             match interrupt {
                 Interrupt::SupervisorTimer => {
+                    TASK_SCHEDULER.check_timers();
                     timer::set_next_trigger();
                     task::suspend_current_and_run_other_task().unwrap();
                 },

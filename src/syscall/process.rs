@@ -5,6 +5,7 @@
 
 // use other mods
 
+use alloc::sync::Arc;
 use frontier_fs::OpenFlags;
 
 // use self mods
@@ -18,7 +19,7 @@ use crate::task::{exit_current_and_run_other_task, PROCESSOR, TASK_SCHEDULER};
 ///     - exit_code
 #[inline(always)]
 pub(crate) fn sys_exit(exit_code: i32) -> ! {
-    debug!("Application exited with code {}", exit_code);
+    debug!("application exited with code {}", exit_code);
     exit_current_and_run_other_task(exit_code).unwrap();
     unreachable!();
 }
@@ -40,9 +41,22 @@ pub(crate) fn sys_get_pid() -> Result<isize> {
 ///
 /// - Errors
 ///     - ProcessHaveNotTask
+///     - ForkWithNoRootTask(tid)
+///     - IdExhausted
+///     - AreaAllocFailed(start_vpn, end_vpn)
+///     - VPNOutOfArea(vpn, start_vpn, end_vpn)
+///     - VPNAlreadyMapped(vpn)
+///     - InvaidPageTablePerm(flags)
+///     - FrameExhausted
+///     - AllocFullPageMapper(ppn)
+///     - PPNAlreadyMapped(ppn)
+///     - PPNNotMapped(ppn)
+///     - AreaNotExists(start_vpn, end_vpn)
+///     - VPNNotMapped(vpn)
 #[inline(always)]
 pub(crate) fn sys_fork() -> Result<isize> {
     let current_task = PROCESSOR.current_task()?;
+    current_task.forkable()?;
     let new_process = current_task.fork_process()?;
     let new_process_inner = new_process.inner_access();
     let new_root_task = new_process_inner.root_task();
@@ -55,8 +69,9 @@ pub(crate) fn sys_fork() -> Result<isize> {
     drop(new_task_inner);
     drop(new_process_inner);
     let pid = new_process.pid();
-    TASK_SCHEDULER.add_task(new_root_task);
-    debug!("Process: {} created successfully by fork()", pid);
+    assert_eq!(Arc::strong_count(&new_root_task), 2);
+    TASK_SCHEDULER.put_read_task(new_root_task);
+    debug!("process: {} created successfully by fork()", pid);
     Ok(pid as isize)
 }
 
@@ -88,6 +103,7 @@ pub(crate) fn sys_fork() -> Result<isize> {
 #[inline(always)]
 pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
+    assert_eq!(Arc::strong_count(&task), 3);
     let process = task.process();
     let process_inner = process.inner_access();
     let current_space = process_inner.space();
@@ -99,7 +115,7 @@ pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize
     let file = ROOT_INODE.find(&path, OpenFlags::READ)?;
     let data = file.read_all()?;
     debug!(
-        "Task {}({} bytes) was loaded successfully",
+        "task {}({} bytes) was loaded successfully",
         path,
         data.len()
     );
@@ -118,8 +134,8 @@ pub(crate) fn sys_exec(path_ptr: *const u8, args_ptr: *const u8) -> Result<isize
 ///         If this address is 0, it means that it does not need to be saved
 ///
 /// - Returns
-///     - -1: task does not exist
-///     - -2: task is still alive
+///     - -1: child process does not exist
+///     - -2: child process is still alive
 ///
 /// - Errors
 ///     - ProcessHaveNotTask
@@ -129,3 +145,5 @@ pub(crate) fn sys_wait_pid(pid: isize, exit_code_ptr: *mut i32) -> Result<isize>
     let process = task.process();
     process.wait_pid(pid, exit_code_ptr)
 }
+
+

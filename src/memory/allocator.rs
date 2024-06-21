@@ -312,6 +312,18 @@ impl BTreeSetFrameAllocator {
             Ok(())
         }
     }
+
+    /// Readonly field for testing
+    #[allow(dead_code)]
+    pub(crate) fn current_ppn(&self) -> usize {
+        self.current_ppn
+    }
+
+    /// Readonly field for testing
+    #[allow(dead_code)]
+    pub(crate) fn end_ppn(&self) -> usize {
+        self.end_ppn
+    }
 }
 
 #[cfg(test)]

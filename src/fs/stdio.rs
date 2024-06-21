@@ -55,7 +55,6 @@ impl File for Stdin {
                 return Ok(count);
             } else {
                 suspend_current_and_run_other_task()?;
-                continue;
             }
         }
     }

@@ -36,9 +36,10 @@
 // self mods
 mod allocator;
 mod context;
-mod model;
+pub(crate) mod model;
 mod process;
 mod scheduler;
+mod signal;
 mod switch;
 
 // use other mods
@@ -81,6 +82,21 @@ pub(crate) fn send_current_task_signal(signal: Signal) -> Result<()> {
 #[inline(always)]
 pub(crate) fn handle_current_task_signals() -> Result<Option<Signal>> {
     process::PROCESSOR.handle_current_task_signals()
+}
+
+/// Just block current task and run other task
+#[inline(always)]
+pub(crate) fn block_current_and_run_other_task() -> Result<()> {
+    process::PROCESSOR.block_current_and_run_other_task(|_| Ok(()))
+}
+
+/// Block current task and put it into sleep task heap
+#[inline(always)]
+pub(crate) fn sleep_current_and_run_other_task(us: usize) -> Result<()> {
+    process::PROCESSOR.block_current_and_run_other_task(|task| {
+        TASK_SCHEDULER.put_sleep_task(us, task);
+        Ok(())
+    })
 }
 
 #[inline(always)]

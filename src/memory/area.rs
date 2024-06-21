@@ -63,6 +63,7 @@ impl PageRangeTracker {
         self.end_vpn
     }
 
+    /// Get the range of the virtual page number
     pub(crate) fn page_range(&self) -> core::ops::Range<usize> {
         self.start_vpn..self.end_vpn
     }

@@ -7,8 +7,8 @@
 use alloc::string::String;
 use enum_group::EnumGroup;
 use frontier_fs::FFSError;
-use thiserror_no_std::Error;
 use frontier_lib::{error::LibError, model::signal::Signal};
+use thiserror_no_std::Error;
 
 // use self mods
 
@@ -141,6 +141,38 @@ pub(crate) enum KernelError {
     #[groups(signal)]
     #[error("Duplicate signal {0:?} as setting")]
     DuplicateSignal(Signal),
+
+    #[groups(sync)]
+    #[error("Double lock mutex")]
+    DoubleLockMutex,
+
+    #[groups(sync)]
+    #[error("Double unlock mutex")]
+    DoubleUnlockMutex,
+
+    #[groups(sync)]
+    #[error("Mutex exhausted")]
+    MutexExhausted,
+
+    #[groups(sync)]
+    #[error("Mutex {0} does not exists")]
+    MutexDoesNotExist(usize),
+
+    #[groups(sync)]
+    #[error("Semaphore exhausted")]
+    SemaphoreExhausted,
+
+    #[groups(sync)]
+    #[error("Semaphore {0} does not exists")]
+    SemaphoreDoesNotExist(usize),
+
+    #[groups(sync)]
+    #[error("Condvar exhausted")]
+    CondvarExhausted,
+
+    #[groups(sync)]
+    #[error("Condvar {0} does not exists")]
+    CondvarDoesNotExist(usize),
 
     #[groups(others, lib)]
     #[error("Lib error: {0}")]

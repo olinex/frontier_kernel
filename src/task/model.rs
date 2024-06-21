@@ -12,11 +12,12 @@ use core::cell::{Ref, RefMut};
 use core::str::FromStr as _;
 use enum_group::EnumGroup;
 use frontier_fs::OpenFlags;
-use frontier_lib::model::signal::{Signal, SignalAction, SignalFlags, SingalTable, SIG_COUNT};
+use frontier_lib::model::signal::{Signal, SignalAction, SignalFlags};
 
 // use self mods
 use super::allocator::{AutoRecycledIdAllocator, IdTracker};
 use super::context::TaskContext;
+use super::signal::SignalControlBlock;
 use crate::configs;
 use crate::fs::inode::ROOT_INODE;
 use crate::fs::stdio::{STDIN, STDOUT};
@@ -24,6 +25,9 @@ use crate::fs::File;
 use crate::lang::container::UserPromiseRefCell;
 use crate::memory::space::{Space, KERNEL_SPACE};
 use crate::prelude::*;
+use crate::sync::condvar::{Condvar, CondvarBlocking};
+use crate::sync::mutex::{Mutex, MutexBlocking, MutexSpin};
+use crate::sync::semaphore::{Semaphore, SemaphoreBlocking, SemaphoreSpin};
 use crate::trap::context::TrapContext;
 
 pub(crate) const ROOT_TID: usize = 0;
@@ -34,21 +38,22 @@ pub(crate) const ROOT_PID: usize = 0;
 /// When the tracker is dropping, the kernel stack will be unmaped from kernel space.
 pub(crate) struct KernelStack(IdTracker);
 impl KernelStack {
+    /// Create a new kernel stack id tracker and map a new kernel stack pages
     pub(crate) fn new() -> Result<Self> {
         let tracker = KERNEL_STACK_ALLOCATOR.alloc()?;
-        let kid = tracker.id();
-        KERNEL_SPACE.map_kernel_task_stack(kid)?;
+        KERNEL_SPACE.map_kernel_task_stack(tracker.id())?;
         Ok(Self(tracker))
     }
 
+    /// Get the id of the kernel stack 
     pub(crate) fn id(&self) -> usize {
         self.0.id()
     }
 }
 impl Drop for KernelStack {
+    /// Drop kernel stack id tracker and unmap kernel stack pages
     fn drop(&mut self) {
-        let kid = self.id();
-        KERNEL_SPACE.unmap_kernel_task_stack(kid).unwrap();
+        KERNEL_SPACE.unmap_kernel_task_stack(self.id()).unwrap();
     }
 }
 
@@ -57,65 +62,8 @@ impl Drop for KernelStack {
 pub(crate) enum TaskStatus {
     Ready,
     Running,
-    Suspended,
+    Blocked,
     Zombie,
-}
-
-/// The control block for signal mechanism, each process have only one signal control block.
-#[derive(Debug)]
-pub(crate) struct SignalControlBlock {
-    handling: Option<Signal>,
-    /// The signals which was set by kill syscall
-    setted: SignalFlags,
-    /// The mask of the signals which should not be active
-    masked: SignalFlags,
-    /// The functions for handler signals, the index of the action is the signal value
-    actions: SingalTable,
-    /// The backup value of normal trap context saved when handing signal
-    trap_ctx_backup: Option<TrapContext>,
-    /// If killed is true, the current task will be exit in the after
-    /// see [`crate::task::process::PROCESSOR::handle_current_task_signals`]
-    killed: bool,
-    /// If frozen is true, the current task will stop running until receive CONT signal
-    /// see [`crate::task::process::PROCESSOR::handle_current_task_signals`]
-    frozen: bool,
-}
-impl SignalControlBlock {
-    /// Create a new task empty signal control block
-    fn new() -> Self {
-        Self {
-            handling: None,
-            setted: SignalFlags::empty(),
-            masked: SignalFlags::empty(),
-            actions: SingalTable::new(),
-            trap_ctx_backup: None,
-            killed: false,
-            frozen: false,
-        }
-    }
-
-    /// Check whether the signal is pending or not based on the block.
-    /// Any pending signal will be handle by custom action or default action.
-    /// The signal must meet the following conditions:
-    ///     - have been setted by kill syscall
-    ///     - not blocked by global masking setting
-    ///     - no other handling signal or the handing signal not block it
-    ///
-    /// - Arguments:
-    ///     - signal: The signal being detected
-    fn is_pending_signal(&self, signal: Signal) -> bool {
-        let flag = signal.into();
-        self.setted.contains(flag)
-            && !self.masked.contains(flag)
-            && match self.handling {
-                Some(handing_signal) => !self
-                    .actions
-                    .get(handing_signal as usize)
-                    .mask()
-                    .contains(flag),
-                None => true,
-            }
-    }
 }
 
 /// The task resource in user space, It manages the lifecycle of the task stack and trap context,
@@ -171,7 +119,6 @@ impl TaskUserResource {
     ///     - PPNNotMapped(ppn)
     fn alloc(&self, space: &mut Space, base_size: usize) -> Result<()> {
         let tid = self.tracker.id();
-        debug!("alloc task {}'s trap context and user stack", tid);
         space.alloc_user_task_stack(base_size, tid)?;
         space.alloc_task_trap_ctx(tid)?;
         Ok(())
@@ -187,7 +134,6 @@ impl TaskUserResource {
     ///     - AreaDeallocFailed(start vpn, end vpn)
     fn dealloc(&self, space: &mut Space, base_size: usize) -> Result<()> {
         let tid = self.tracker.id();
-        debug!("dealloc task {}'s trap context and user stack", tid);
         space.dealloc_task_trap_ctx(tid)?;
         space.dealloc_user_task_stack(base_size, tid)?;
         Ok(())
@@ -263,7 +209,7 @@ impl TaskControlBlockInner {
     fn release_user_resource(&mut self, exit_code: usize) {
         let resource = self.user_resource.take();
         self.status = TaskStatus::Zombie;
-        self.exit_code = Some(exit_code);
+        self.exit_code.replace(exit_code);
         self.user_resource = None;
         resource.unwrap();
     }
@@ -327,7 +273,7 @@ impl TaskControlBlock {
     ///     - AllocFullPageMapper(ppn)
     ///     - PPNAlreadyMapped(ppn)
     ///     - PPNNotMapped(ppn)
-    fn new(tracker: IdTracker, process: &Arc<ProcessControlBlock>) -> Result<Self> {
+    pub(crate) fn new(tracker: IdTracker, process: &Arc<ProcessControlBlock>) -> Result<Self> {
         let kernel_stack = KernelStack::new()?;
         let inner = TaskControlBlockInner::new(tracker, process)?;
         Ok(Self {
@@ -335,35 +281,6 @@ impl TaskControlBlock {
             process: Arc::downgrade(process),
             inner: unsafe { UserPromiseRefCell::new(inner) },
         })
-    }
-
-    pub(crate) fn fork_task(&self, entry_point: usize, arg: usize) -> Result<Arc<Self>> {
-        self.forkable()?;
-        let process = self.process();
-        let tracker = process.tid_allocator.alloc()?;
-        let new_task = Arc::new(Self::new(tracker, &process)?);
-        let new_tid = new_task.tid();
-        let mut new_inner = new_task.inner_exclusive_access();
-        let mut process_inner = process.inner_exclusive_access();
-        process_inner.tasks.insert(new_tid, Arc::clone(&new_task));
-        let kernel_stack_top_va = Space::get_kernel_task_stack_top_va(new_task.kernel_stack.id());
-        let user_stack_top_va = Space::get_user_task_stack_top_va(process_inner.base_size, new_tid);
-        new_inner.modify_trap_ctx(&process_inner.space, |trap_ctx| {
-            *trap_ctx = TrapContext::create_app_init_context(
-                entry_point,
-                user_stack_top_va,
-                kernel_stack_top_va,
-            );
-            trap_ctx.set_arg(0, arg);
-            Ok(())
-        })?;
-        new_inner.modify_task_ctx(|task_ctx| {
-            task_ctx.goto_trap_return(kernel_stack_top_va);
-            Ok(())
-        })?;
-        drop(new_inner);
-        drop(process_inner);
-        Ok(new_task)
     }
 
     /// Fork a new process control block by current task control block.
@@ -382,14 +299,13 @@ impl TaskControlBlock {
     ///     - AreaNotExists(start_vpn, end_vpn)
     ///     - VPNNotMapped(vpn)
     pub(crate) fn fork_process(&self) -> Result<Arc<ProcessControlBlock>> {
-        self.forkable()?;
         let process = self.process();
         let new_process = process.fork()?;
         let tracker = new_process.tid_allocator.alloc()?;
         let new_tid = tracker.id();
         assert_eq!(new_tid, ROOT_TID);
         let new_task = Arc::new(Self::new(tracker, &new_process)?);
-        let process_inner = process.inner_access();
+        let mut process_inner = process.inner_exclusive_access();
         let mut new_process_inner = new_process.inner_exclusive_access();
         // Copy user stack's bytes data from current task's space to new task's space
         let (user_stack_start_vpn, user_stack_end_vpn) =
@@ -425,6 +341,9 @@ impl TaskControlBlock {
                 Ok(())
             })
         })?;
+        process_inner
+            .childrens
+            .insert(new_process.pid(), Arc::clone(&new_process));
         drop(inner);
         drop(new_inner);
         drop(process_inner);
@@ -514,6 +433,19 @@ impl TaskControlBlock {
         Ok(2)
     }
 
+    /// Try to wait a task according to task id and return the status code of task
+    /// 
+    /// - Arguments
+    ///     - tid: task id for waiting
+    ///     - exit_code_ptr: the pointer of mutable i32 variable
+    /// 
+    /// - Returns
+    ///     - Ok(-1): task does not exist
+    ///     - Ok(-2): task is still running
+    ///     - Ok(task id) 
+    /// 
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn wait_tid(&self, tid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
         let process = self.process.upgrade().unwrap();
         let mut process_inner = process.inner_exclusive_access();
@@ -579,6 +511,10 @@ impl TaskControlBlock {
             .id()
     }
 
+    /// Check if the task could fork new process and new task
+    ///
+    /// - Errors
+    ///     - ForkWithNoRootTask(tid)
     pub(crate) fn forkable(&self) -> Result<()> {
         let tid = self.tid();
         if tid != ROOT_TID {
@@ -597,13 +533,19 @@ impl TaskControlBlock {
     /// Mark current task as suspended task
     pub(crate) fn mark_suspended(&self) {
         let mut inner = self.inner_exclusive_access();
-        inner.status = TaskStatus::Suspended;
+        inner.status = TaskStatus::Ready;
     }
 
     /// Mark current task as running task
     pub(crate) fn mark_running(&self) {
         let mut inner = self.inner_exclusive_access();
         inner.status = TaskStatus::Running;
+    }
+
+    /// Mark current task as bloced task
+    pub(crate) fn mark_blocked(&self) {
+        let mut inner = self.inner_exclusive_access();
+        inner.status = TaskStatus::Blocked;
     }
 
     /// Mark current task as zombie task.
@@ -616,7 +558,9 @@ impl TaskControlBlock {
         if self.tid() != ROOT_TID {
             self.release_user_resource(exit_code as usize);
         } else {
-            self.process().mark_zombie(exit_code);
+            let process = self.process();
+            process.mark_zombie(exit_code);
+            assert!(process.is_zombie());
         }
     }
 }
@@ -639,6 +583,12 @@ pub(crate) struct ProcessControlBlockInner {
     exit_code: Option<usize>,
     /// The table of the files which is using by process
     fd_table: Vec<Option<Arc<dyn File>>>,
+    /// The lock resource of which is using by process
+    mutex_table: Vec<Option<Arc<dyn Mutex>>>,
+    /// The semaphore resource of which is using by process
+    semaphore_table: Vec<Option<Arc<dyn Semaphore>>>,
+    /// The condition variable resource of which is using by process
+    condvar_table: Vec<Option<Arc<dyn Condvar>>>,
     /// The block information all about signal
     signal: SignalControlBlock,
     /// All the tasks belongs to the current process
@@ -669,6 +619,9 @@ impl ProcessControlBlockInner {
             childrens: BTreeMap::new(),
             exit_code: None,
             fd_table,
+            mutex_table: Vec::new(),
+            semaphore_table: Vec::new(),
+            condvar_table: Vec::new(),
             signal: SignalControlBlock::new(),
             tasks: BTreeMap::new(),
         }
@@ -681,7 +634,7 @@ impl ProcessControlBlockInner {
 
     /// Check if the current process is zombie status
     fn is_zombie(&self) -> bool {
-        self.tasks.iter().all(|(_, v)| v.is_zombie())
+        self.tasks.len() == 0 || self.tasks.iter().all(|(_, v)| v.is_zombie())
     }
 
     /// Get the exit code of current process.
@@ -691,12 +644,12 @@ impl ProcessControlBlockInner {
 
     /// Set the exit code of current process
     fn set_exit_code(&mut self, exit_code: usize) {
-        self.exit_code = Some(exit_code);
+        self.exit_code.replace(exit_code);
     }
 
     /// Get the root task of process
     pub(crate) fn root_task(&self) -> Arc<TaskControlBlock> {
-        Arc::clone(self.tasks.get(&0).unwrap())
+        Arc::clone(self.tasks.get(&ROOT_TID).unwrap())
     }
 
     /// Get the space of process
@@ -704,22 +657,19 @@ impl ProcessControlBlockInner {
         &self.space
     }
 
-    /// Get the signal masking
-    pub(crate) fn get_singal_mask(&self) -> SignalFlags {
-        self.signal.masked
+    /// Set the signal masking and return previous version masking
+    pub(crate) fn exchange_singal_mask(&mut self, mask: SignalFlags) -> SignalFlags {
+        self.signal.mask(mask)
     }
 
-    /// Set the signal masking
-    pub(crate) fn set_singal_mask(&mut self, mask: SignalFlags) {
-        self.signal.masked = mask;
-    }
-
+    /// Get the action according to signal
     pub(crate) fn get_signal_action(&self, signal: Signal) -> SignalAction {
-        self.signal.actions.get(signal as usize)
+        self.signal.get_action(signal)
     }
 
+    /// Set a new action by signal
     pub(crate) fn set_signal_action(&mut self, signal: Signal, action: SignalAction) {
-        self.signal.actions.set(signal as usize, action)
+        self.signal.set_action(signal, action)
     }
 
     /// Clear the signal being processed, and resume the normal trap context.
@@ -739,22 +689,213 @@ impl ProcessControlBlockInner {
     ///     - VPNNotMapped(vpn)
     pub(crate) fn signal_return(&mut self) -> Result<isize> {
         let root_task = self.root_task();
-        let signal = match self.signal.handling {
-            Some(signal) => signal,
-            None => return Ok(-1),
+        if let Some((_, trap_ctx_backup)) = self.signal.rollback() {
+            let task_inner = root_task.inner_access();
+            task_inner.modify_trap_ctx(&self.space, |trap_ctx| {
+                *trap_ctx = trap_ctx_backup;
+                Ok(trap_ctx.get_arg(0) as isize)
+            })
+        } else {
+            Ok(-1)
+        }
+    }
+
+    /// Allocate a condition variable.
+    ///
+    /// - Errors
+    ///     - CondvarExhausted
+    pub(crate) fn alloc_condvar(&mut self) -> Result<usize> {
+        let condvar: Arc<dyn Condvar> = Arc::new(CondvarBlocking::new());
+        for (id, wrapper) in self.condvar_table.iter_mut().enumerate() {
+            if wrapper.is_none() {
+                (*wrapper).replace(Arc::clone(&condvar));
+                return Ok(id);
+            }
+        }
+        let id = self.condvar_table.len();
+        if id >= configs::MAX_CONDVAR_COUNT {
+            Err(KernelError::CondvarExhausted)
+        } else {
+            self.condvar_table.push(Some(Arc::clone(&condvar)));
+            Ok(id)
+        }
+    }
+
+    /// Deallocate a condition variable and try to dealloc heap resource in task control context.
+    /// 
+    /// - Arguments
+    ///     - id: the id of the condition variable
+    /// 
+    /// - Errors
+    ///     - CondvarDoesNotExist
+    pub(crate) fn dealloc_condvar(&mut self, id: usize) -> Result<()> {
+        let wrapper = self
+            .condvar_table
+            .get_mut(id)
+            .ok_or(KernelError::CondvarDoesNotExist(id))?;
+        if wrapper.is_some() {
+            wrapper.take();
+        }
+        if id == self.condvar_table.len() - 1 {
+            loop {
+                if self
+                    .condvar_table
+                    .get(self.condvar_table.len() - 1)
+                    .is_none()
+                {
+                    self.condvar_table.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the condition variable immutable reference from task control context
+    /// 
+    /// - Arguments
+    ///     - id: the id the condition variable
+    pub(crate) fn get_condvar(&self, id: usize) -> Option<&Arc<dyn Condvar>> {
+        self.condvar_table
+            .get(id)
+            .and_then(|wrapper| wrapper.as_ref())
+    }
+
+    /// Allocate a semaphore and set initial source count by count argument.
+    /// 
+    /// - Arguemnts
+    ///     - blocking: if the semaphore is blocking type
+    ///     - count: the count of initial source
+    ///
+    /// - Errors
+    ///     - SemaphoreExhausted
+    pub(crate) fn alloc_semaphore(&mut self, blocking: bool, count: isize) -> Result<usize> {
+        let semaphore: Arc<dyn Semaphore> = if blocking {
+            Arc::new(SemaphoreBlocking::new(count))
+        } else {
+            Arc::new(SemaphoreSpin::new(count))
         };
-        let trap_ctx_backup = match self.signal.trap_ctx_backup {
-            Some(ctx) => ctx,
-            None => return Ok(-1),
+        for (id, wrapper) in self.semaphore_table.iter_mut().enumerate() {
+            if wrapper.is_none() {
+                (*wrapper).replace(Arc::clone(&semaphore));
+                return Ok(id);
+            }
+        }
+        let id = self.semaphore_table.len();
+        if id >= configs::MAX_SEMAPHORE_COUNT {
+            Err(KernelError::SemaphoreExhausted)
+        } else {
+            self.semaphore_table.push(Some(Arc::clone(&semaphore)));
+            return Ok(id);
+        }
+    }
+
+    /// Deallocate a semaphore and try to dealloc heap resource in task control context.
+    /// 
+    /// - Arguments
+    ///     - id: the id of the semaphore
+    /// 
+    /// - Errors
+    ///     - SemaphoreDoesNotExist
+    pub(crate) fn dealloc_semaphore(&mut self, id: usize) -> Result<()> {
+        let wrapper = self
+            .semaphore_table
+            .get_mut(id)
+            .ok_or(KernelError::SemaphoreDoesNotExist(id))?;
+        if wrapper.is_some() {
+            wrapper.take();
+        }
+        if id == self.semaphore_table.len() - 1 {
+            loop {
+                if self
+                    .semaphore_table
+                    .get(self.semaphore_table.len() - 1)
+                    .is_none()
+                {
+                    self.semaphore_table.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the semaphore immutable reference from task control context
+    /// 
+    /// - Arguments
+    ///     - id: the id the semaphore
+    pub(crate) fn get_semaphore(&self, id: usize) -> Option<&Arc<dyn Semaphore>> {
+        self.semaphore_table
+            .get(id)
+            .and_then(|wrapper| wrapper.as_ref())
+    }
+
+
+    /// Allocate a mutex.
+    /// 
+    /// - Arguemnts
+    ///     - blocking: if the mutex is blocking type
+    ///
+    /// - Errors
+    ///     - MutexExhausted
+    pub(crate) fn alloc_mutex(&mut self, blocking: bool) -> Result<usize> {
+        let mutex: Arc<dyn Mutex> = if blocking {
+            Arc::new(MutexBlocking::new())
+        } else {
+            Arc::new(MutexSpin::new())
         };
-        self.signal.handling = None;
-        self.signal.setted.remove(signal.into());
-        self.signal.trap_ctx_backup = None;
-        let task_inner = root_task.inner_access();
-        task_inner.modify_trap_ctx(&self.space, |trap_ctx| {
-            *trap_ctx = trap_ctx_backup;
-            Ok(trap_ctx.get_arg(0) as isize)
-        })
+        for (id, wrapper) in self.mutex_table.iter_mut().enumerate() {
+            if wrapper.is_none() {
+                (*wrapper).replace(Arc::clone(&mutex));
+                return Ok(id);
+            }
+        }
+        let id = self.mutex_table.len();
+        if id >= configs::MAX_MUTEX_COUNT {
+            Err(KernelError::MutexExhausted)
+        } else {
+            self.mutex_table.push(Some(Arc::clone(&mutex)));
+            return Ok(id);
+        }
+    }
+
+    /// Deallocate a mutex and try to dealloc heap resource in task control context.
+    /// 
+    /// - Arguments
+    ///     - id: the id of the mutex
+    /// 
+    /// - Errors
+    ///     - MutexDoesNotExist
+    pub(crate) fn dealloc_mutex(&mut self, id: usize) -> Result<()> {
+        let wrapper = self
+            .mutex_table
+            .get_mut(id)
+            .ok_or(KernelError::MutexDoesNotExist(id))?;
+        if wrapper.is_some() {
+            wrapper.take();
+        }
+        if id == self.mutex_table.len() - 1 {
+            loop {
+                if self.mutex_table.get(self.mutex_table.len() - 1).is_none() {
+                    self.mutex_table.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the mutex immutable reference from task control context
+    /// 
+    /// - Arguments
+    ///     - id: the id the mutex
+    pub(crate) fn get_mutex(&self, id: usize) -> Option<&Arc<dyn Mutex>> {
+        self.mutex_table
+            .get(id)
+            .and_then(|wrapper| wrapper.as_ref())
     }
 
     /// Allocate a file descriptor and set the file object into task control block context.
@@ -764,10 +905,10 @@ impl ProcessControlBlockInner {
     ///
     /// - Errors
     ///     - FileDescriptorExhausted
-    pub(crate) fn allc_fd(&mut self, file: Arc<dyn File>) -> Result<usize> {
+    pub(crate) fn alloc_fd(&mut self, file: Arc<dyn File>) -> Result<usize> {
         for (fd, wrapper) in self.fd_table.iter_mut().enumerate() {
             if wrapper.is_none() {
-                *wrapper = Some(file);
+                (*wrapper).replace(file);
                 return Ok(fd);
             }
         }
@@ -871,13 +1012,17 @@ impl ProcessControlBlock {
             inner: unsafe { UserPromiseRefCell::new(inner) },
         });
         if let Some(parent) = parent {
-            child.inner.exclusive_access().parent = Some(Arc::downgrade(&parent));
+            child
+                .inner
+                .exclusive_access()
+                .parent
+                .replace(Arc::downgrade(&parent));
             parent
                 .inner_exclusive_access()
                 .childrens
                 .insert(pid, Arc::clone(&child));
         };
-        child.alloc_task(entry_point)?;
+        child.alloc_task(entry_point, None)?;
         Ok(child)
     }
 
@@ -938,13 +1083,26 @@ impl ProcessControlBlock {
             inner: unsafe { UserPromiseRefCell::new(inner) },
         });
         let mut child_inner = child.inner_exclusive_access();
-        child_inner.parent = Some(Arc::downgrade(self));
+        child_inner.parent.replace(Arc::downgrade(self));
         parent_inner.childrens.insert(pid, Arc::clone(&child));
         drop(child_inner);
         drop(parent_inner);
         Ok(child)
     }
 
+    /// Try to wait a process according to process id and return the status code of task
+    /// 
+    /// - Arguments
+    ///     - pid: process id for waiting
+    ///     - exit_code_ptr: the pointer of mutable i32 variable
+    /// 
+    /// - Returns
+    ///     - Ok(-1): process does not exist
+    ///     - Ok(-2): process is still running
+    ///     - Ok(process id) 
+    /// 
+    /// - Errors
+    ///     - VPNNotMapped(vpn)
     pub(crate) fn wait_pid(&self, pid: isize, exit_code_ptr: *mut i32) -> Result<isize> {
         let parent_id = self.pid();
         let mut inner = self.inner_exclusive_access();
@@ -956,7 +1114,7 @@ impl ProcessControlBlock {
             let child = inner.childrens.get(&child_pid).unwrap();
             match (child.is_zombie(), pid as usize == child_pid, pid) {
                 (true, _, -1) | (true, true, _) => {
-                    debug!("drop child process {} from parent {}", child_pid, parent_id,);
+                    debug!("drop child process {} from parent {}", child_pid, parent_id);
                     let child = inner.childrens.remove(&child_pid).unwrap();
                     assert_eq!(Arc::strong_count(&child), 1);
                     let exit_code = child.inner_access().get_exit_code().unwrap();
@@ -983,13 +1141,7 @@ impl ProcessControlBlock {
     /// - Errors
     ///     - DuplicateSignal(signal)
     pub(crate) fn kill(&self, signal: Signal) -> Result<()> {
-        let mut inner = self.inner_exclusive_access();
-        if inner.signal.setted.contains(signal.into()) {
-            Err(KernelError::DuplicateSignal(signal))
-        } else {
-            inner.signal.setted.insert(signal.into());
-            Ok(())
-        }
+        self.inner_exclusive_access().signal.try_kill(signal)
     }
 
     /// Create the initial process control block
@@ -1068,6 +1220,7 @@ impl ProcessControlBlock {
     pub(crate) fn alloc_task(
         self: &Arc<ProcessControlBlock>,
         entry_point: usize,
+        arg: Option<usize>,
     ) -> Result<Arc<TaskControlBlock>> {
         let tracker = self.tid_allocator.alloc()?;
         let tid = tracker.id();
@@ -1082,6 +1235,9 @@ impl ProcessControlBlock {
                 user_stack_top_va,
                 kernel_stack_top_va,
             );
+            if let Some(arg) = arg {
+                trap_ctx.set_arg(0, arg);
+            }
             Ok(())
         })?;
         task_inner.modify_task_ctx(|task_ctx| {
@@ -1089,25 +1245,15 @@ impl ProcessControlBlock {
             Ok(())
         })?;
         process_inner.tasks.insert(tid, Arc::clone(&task));
-        Ok(Arc::clone(&task))
+        drop(process_inner);
+        drop(task_inner);
+        Ok(task)
     }
 
     /// Check if there are any bad signal is setted.
     pub(crate) fn check_bad_signals(&self) -> Option<Signal> {
         let inner = self.inner_access();
-        if inner.signal.setted.contains(SignalFlags::INT) {
-            Some(Signal::INT)
-        } else if inner.signal.setted.contains(SignalFlags::ILL) {
-            Some(Signal::ILL)
-        } else if inner.signal.setted.contains(SignalFlags::ABRT) {
-            Some(Signal::ABRT)
-        } else if inner.signal.setted.contains(SignalFlags::FPE) {
-            Some(Signal::FPE)
-        } else if inner.signal.setted.contains(SignalFlags::SEGV) {
-            Some(Signal::SEGV)
-        } else {
-            None
-        }
+        inner.signal.get_bad_signal()
     }
 
     /// Make current process to handle all signals.
@@ -1120,27 +1266,24 @@ impl ProcessControlBlock {
     ///     - VPNNotMapped(vpn)
     pub(crate) fn handle_all_signals(&self) -> Result<(bool, bool)> {
         let mut inner = self.inner_exclusive_access();
-        for signum in 0..SIG_COUNT {
-            let signal: Signal = signum.try_into().unwrap();
+        for signal in Signal::iter() {
             if !inner.signal.is_pending_signal(signal) {
                 continue;
             }
             match signal {
                 // STOP and CONT are a pair of semaphores that affect each other
                 Signal::STOP => {
-                    inner.signal.setted ^= SignalFlags::STOP;
-                    inner.signal.frozen = true;
+                    inner.signal.freeze();
                 }
                 Signal::CONT => {
-                    inner.signal.setted ^= SignalFlags::CONT;
-                    inner.signal.frozen = false;
+                    inner.signal.cont();
                 }
                 Signal::KILL | Signal::DEF => {
-                    inner.signal.killed = true;
+                    inner.signal.kill();
                 }
                 other => {
                     // Get the signal handle action, all of the action handle fuction is pointed to 0
-                    let action = inner.signal.actions.get(signal as usize);
+                    let action = inner.signal.get_action(signal);
                     let handler = action.handler();
                     // If handler is default action, just ignore it and continue
                     if handler.is_null() {
@@ -1165,14 +1308,12 @@ impl ProcessControlBlock {
                         Ok(trap_ctx_backup)
                     })?;
                     // Backup trap context to the process control block
-                    inner.signal.setted ^= other.into();
-                    inner.signal.handling = Some(other);
-                    inner.signal.trap_ctx_backup = Some(trap_ctx_backup);
-                    return Ok((inner.signal.killed, inner.signal.frozen));
+                    inner.signal.backup(other, trap_ctx_backup);
+                    return Ok((inner.signal.is_killed(), inner.signal.is_frozen()));
                 }
             }
         }
-        return Ok((inner.signal.killed, inner.signal.frozen));
+        return Ok((inner.signal.is_killed(), inner.signal.is_frozen()));
     }
 
     /// Check if the current process is zombie status
@@ -1188,30 +1329,31 @@ impl ProcessControlBlock {
     ///     - exit_code: the exit code of current process
     pub(crate) fn mark_zombie(self: &Arc<Self>, exit_code: i32) {
         let inner = self.inner_access();
-        let tasks = inner.tasks.clone();
+        let tasks: Vec<Arc<TaskControlBlock>> =
+            inner.tasks.values().map(|task| Arc::clone(task)).collect();
         // because we will also use inner process control block when releasing task's user resource
         drop(inner);
-        for task in tasks.values() {
+        for task in tasks {
             if task.is_zombie() {
                 continue;
             }
             task.release_user_resource(exit_code as usize);
+            assert_eq!(Arc::strong_count(&task), 3);
         }
-        drop(tasks);
         let mut inner = self.inner_exclusive_access();
-        inner.tasks.clear();
-        inner.set_exit_code(exit_code as usize);
         for child in inner.childrens.values() {
             child.mark_zombie(exit_code);
             let mut child_inner = child.inner_exclusive_access();
-            child_inner.parent = Some(Arc::downgrade(&INIT_PROC));
+            child_inner.parent.replace(Arc::downgrade(&INIT_PROC));
             INIT_PROC
                 .inner_exclusive_access()
                 .childrens
                 .insert(child.pid(), Arc::clone(child));
         }
+        inner.tasks.clear();
         inner.childrens.clear();
         inner.space.recycle_data_pages();
+        inner.set_exit_code(exit_code as usize);
     }
 }
 
@@ -1219,21 +1361,30 @@ lazy_static! {
     /// The global singleton allocator of process id
     static ref PID_ALLOCATOR: AutoRecycledIdAllocator =
         AutoRecycledIdAllocator::new(configs::MAX_PID_COUNT);
-}
 
-lazy_static! {
     /// The global singleton allocator of kernel stack
     static ref KERNEL_STACK_ALLOCATOR: AutoRecycledIdAllocator =
         AutoRecycledIdAllocator::new(configs::MAX_PID_COUNT * configs::MAX_TID_COUNT);
-}
 
-lazy_static! {
     /// The initial process which will be created when operation system is started
     pub(crate) static ref INIT_PROC: Arc<ProcessControlBlock> =
         ProcessControlBlock::new_init_proc().unwrap();
 }
 
-lazy_static! {
-    /// The initial task which is belongs to the initial process
-    pub(crate) static ref INIT_TASK: Arc<TaskControlBlock> = INIT_PROC.inner_access().root_task();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn test_kernel_stack() {
+        let stack = KernelStack::new();
+        assert!(stack.is_ok());
+        let stack = stack.unwrap();
+        let id = stack.id();
+        drop(stack);
+        let stack = KernelStack::new();
+        assert!(stack.is_ok());
+        let stack = stack.unwrap();
+        assert_eq!(stack.id(), id);
+    }
 }

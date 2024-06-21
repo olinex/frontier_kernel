@@ -36,6 +36,7 @@ mod fs;
 mod lang;
 mod memory;
 mod sbi;
+mod sync;
 mod syscall;
 mod task;
 mod trap;
@@ -48,6 +49,8 @@ use core::arch::global_asm;
 // re export commonly used modules or functions
 mod prelude {
     pub(crate) use crate::lang::error::*;
+
+    #[allow(unused_imports)]
     pub(crate) use crate::{print, println};
 }
 
@@ -62,7 +65,7 @@ cfg_if! {
 
 /// Initially make bss section to zero is very import when kernel was initializing.
 /// It must be called at the very first when kernel was booting.
-/// This method must be compiling as inline code, 
+/// This method must be compiling as inline code,
 /// because the boot stack was containing in the bss section
 /// and all the boot stack will be set to zero.
 #[inline(always)]

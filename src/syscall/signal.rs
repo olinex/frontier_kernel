@@ -78,10 +78,13 @@ pub(crate) fn sys_sig_action(
     Ok(0)
 }
 
-/// Set up signal masking for the current task.
+/// Set up signal masking for the current task, return previous signal masking.
 /// 
 /// - Arguments
 ///     - mask: the bitmap of signal masking
+/// 
+/// - Returns
+///     - Ok(previous signal masking)
 /// 
 /// - Errors
 ///     - ProcessHaveNotTask
@@ -90,9 +93,8 @@ pub(crate) fn sys_sig_proc_mask(mask: u32) -> Result<isize> {
     let task = PROCESSOR.current_task()?;
     let process = task.process();
     let mut process_inner = process.inner_exclusive_access();
-    let old_mask = process_inner.get_singal_mask();
     if let Some(mask) = SignalFlags::from_bits(mask) {
-        process_inner.set_singal_mask(mask);
+        let old_mask = process_inner.exchange_singal_mask(mask);
         Ok(old_mask.bits() as isize)
     } else {
         Ok(-1)

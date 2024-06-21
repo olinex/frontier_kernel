@@ -37,6 +37,7 @@ impl ByteBuffers {
         Self { inner, length }
     }
 
+    /// The total bytes in the multi buffers
     pub(crate) fn len(&self) -> usize {
         self.length
     }
@@ -162,6 +163,7 @@ impl RingBuffer {
         }
     }
 
+    /// Get the length of avaiable bytes the ring buffer
     pub(crate) fn len(&self) -> usize {
         match self.status {
             RingBufferStatus::EMPTY => 0,
@@ -170,6 +172,7 @@ impl RingBuffer {
         }
     }
 
+    /// Get the capacity of the ring buffer
     pub(crate) fn capacity(&self) -> usize {
         self.buffer.len()
     }

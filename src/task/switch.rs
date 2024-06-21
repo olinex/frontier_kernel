@@ -14,7 +14,7 @@ cfg_if! {
         global_asm!(include_str!("../assembly/riscv64/switch.asm"));
 
         extern "C" {
-            /// Assembly function whitch will save current task's ra/sp/callee saved registers.
+            /// Assembly function which will save current task's ra/sp/callee saved registers.
             /// For switching to other task, we must restore the registers by the task we want to run in the next time.
             pub(crate) fn _fn_switch_task(
                 current_task_ctx_ptr: *mut TaskContext,

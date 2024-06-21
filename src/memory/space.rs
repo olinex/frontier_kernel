@@ -160,6 +160,18 @@ impl Space {
         (Self::vpn_ceil(start_va), Self::vpn_ceil(end_va))
     }
 
+    /// Get the bottom virtual address of the trap context
+    ///
+    /// - Arguments
+    ///     - tid: the unique id of the task
+    ///
+    /// - Returns
+    ///     - trap context's top virtual address
+    pub(crate) fn get_task_trap_ctx_bottom_va(tid: usize) -> usize {
+        let (start_vpn, _) = Self::get_task_trap_ctx_vpn_range(tid);
+        PageTable::cal_base_va_with(start_vpn)
+    }
+
     /// Get the virtual page number which is calculated by ceil divide the virtual address
     ///
     /// - Arguments
@@ -590,6 +602,7 @@ impl Space {
     /// - Errors
     ///     - AreaNotExists(start_vpn, end_vpn)
     ///     - VPNNotMapped(vpn)
+    #[allow(dead_code)]
     pub(crate) fn copy_area_from_self(
         &mut self,
         src_start_vpn: usize,
@@ -805,6 +818,7 @@ impl Space {
         Ok(space)
     }
 
+    /// Clear all pages
     pub(crate) fn recycle_data_pages(&mut self) {
         self.area_set.clear();
     }

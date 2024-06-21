@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 
 // use self mods
 use super::context::TaskContext;
-use super::model::{TaskControlBlock, INIT_TASK};
+use super::model::{TaskControlBlock, INIT_PROC};
 use super::scheduler::TASK_SCHEDULER;
 use super::{switch, Signal};
 use crate::lang::container::UserPromiseRefCell;
@@ -17,14 +17,17 @@ use crate::{configs, prelude::*};
 /// Keep the current running task the processor structure
 pub(crate) struct Processor {
     current: Option<Arc<TaskControlBlock>>,
+    empty_task_ctx: TaskContext,
     idle_task_ctx: TaskContext,
 }
 impl Processor {
     /// Create a new empty processor
     fn new() -> Self {
+        let empty_task_ctx = TaskContext::empty();
         Self {
             current: None,
-            idle_task_ctx: TaskContext::empty(),
+            empty_task_ctx,
+            idle_task_ctx: empty_task_ctx,
         }
     }
 
@@ -55,12 +58,12 @@ impl PROCESSOR {
     }
 
     /// switch current process to idle task context
-    fn switch(&self, switched_task_cx_ptr: *mut TaskContext) {
+    fn switch_from(&self, current_task_ctx_ptr: *mut TaskContext) {
         let mut processor = self.exclusive_access();
-        let idle_task_cx_ptr = processor.get_idle_task_ctx_ptr();
+        let next_task_ctx_ptr = processor.get_idle_task_ctx_ptr();
         drop(processor);
         unsafe {
-            switch::_fn_switch_task(switched_task_cx_ptr, idle_task_cx_ptr);
+            switch::_fn_switch_task(current_task_ctx_ptr, next_task_ctx_ptr);
         }
     }
 
@@ -68,18 +71,19 @@ impl PROCESSOR {
     #[inline(always)]
     pub(crate) fn schedule(&self) -> ! {
         loop {
-            if let Some(task) = TASK_SCHEDULER.fetch_task() {
+            TASK_SCHEDULER.check_timers();
+            if let Some(task) = TASK_SCHEDULER.pop_ready_task() {
                 if task.is_zombie() {
                     continue;
                 }
                 let mut processor = self.exclusive_access();
-                let idle_task_cx_ptr = processor.get_idle_task_ctx_ptr();
-                let next_task_cx_ptr = task.task_ctx_ptr();
+                let current_task_ctx_ptr = processor.get_idle_task_ctx_ptr();
+                let next_task_ctx_ptr = task.task_ctx_ptr();
                 task.mark_running();
-                processor.current = Some(task);
+                processor.current.replace(task);
                 drop(processor);
                 unsafe {
-                    switch::_fn_switch_task(idle_task_cx_ptr, next_task_cx_ptr);
+                    switch::_fn_switch_task(current_task_ctx_ptr, next_task_ctx_ptr);
                 }
             } else {
                 panic!("There was no task available in the task queue")
@@ -92,13 +96,32 @@ impl PROCESSOR {
     /// - Errors
     ///     - ProcessHaveNotTask
     pub(crate) fn suspend_current_and_run_other_task(&self) -> Result<()> {
-        let processor = self.access();
-        if let Some(task) = &processor.current {
+        let mut processor = self.exclusive_access();
+        if let Some(task) = processor.current.take() {
             task.mark_suspended();
-            TASK_SCHEDULER.add_task(Arc::clone(task));
-            let task_ctx_ptr = task.task_ctx_ptr() as *mut TaskContext;
+            let current_task_ctx_ptr = task.task_ctx_ptr() as *mut TaskContext;
+            TASK_SCHEDULER.put_read_task(task);
             drop(processor);
-            self.switch(task_ctx_ptr);
+            self.switch_from(current_task_ctx_ptr);
+            Ok(())
+        } else {
+            Err(KernelError::ProcessHaveNotTask)
+        }
+    }
+
+    /// Mark current task as blocked and run other runable task.
+    /// Blocked task will no input into runable task, untill it's status change to ready by system event.
+    /// 
+    /// - Errors
+    ///     - ProcessHaveNotTask
+    pub(crate) fn block_current_and_run_other_task(&self, f: impl FnOnce(Arc<TaskControlBlock>) -> Result<()>) -> Result<()> {
+        let mut processor = self.exclusive_access();
+        if let Some(task) = processor.current.take() {
+            task.mark_blocked();
+            let current_task_ctx_ptr = task.task_ctx_ptr() as *mut TaskContext;
+            f(task)?;
+            drop(processor);
+            self.switch_from(current_task_ctx_ptr);
             Ok(())
         } else {
             Err(KernelError::ProcessHaveNotTask)
@@ -106,7 +129,9 @@ impl PROCESSOR {
     }
 
     /// Mark current task as exited, write the exit code into the current task context,
-    /// and run other runable task
+    /// and run other runable task.
+    /// In the same time, we also do some other things:
+    ///     - remove current task from timer block list
     ///
     /// - Arguments
     ///     - exit_code: the exit code passing from the user space
@@ -114,18 +139,15 @@ impl PROCESSOR {
     /// - Errors
     ///     - ProcessHaveNotTask
     pub(crate) fn exit_current_and_run_other_task(&self, exit_code: i32) -> Result<()> {
-        let processor = self.access();
-        if let Some(task) = &processor.current {
-            debug!(
-                "exit current task {} from process {}, still {} tasks",
-                task.tid(),
-                task.process().pid(),
-                TASK_SCHEDULER.task_count()
-            );
+        let mut processor = self.exclusive_access();
+        if let Some(task) = processor.current.take() {
+            TASK_SCHEDULER.remove_timer(&task);
+            assert_eq!(Arc::strong_count(&task), 2);
+            let current_task_ctx_ptr = &mut processor.empty_task_ctx as *mut _;
             task.mark_zombie(exit_code);
+            drop(task);
             drop(processor);
-            let mut unused = TaskContext::empty();
-            self.switch(&mut unused as *mut _);
+            self.switch_from(current_task_ctx_ptr);
             Ok(())
         } else {
             Err(KernelError::ProcessHaveNotTask)
@@ -193,5 +215,5 @@ pub(crate) fn add_init_proc() {
         "adding initial task {} to task queue",
         configs::INIT_PROCESS_PATH
     );
-    TASK_SCHEDULER.add_task(Arc::clone(&INIT_TASK));
+    TASK_SCHEDULER.put_read_task(INIT_PROC.inner_access().root_task());
 }

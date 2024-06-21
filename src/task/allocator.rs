@@ -117,21 +117,51 @@ impl AutoRecycledIdAllocator {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     #[test_case]
     fn test_frame_allocator_alloc_and_dealloc() {
-        let mut allocator = BTreeIdAllocator::new(1);
-        assert_eq!(allocator.current_id, 0);
-        assert_eq!(allocator.max_id, 1);
-        assert!(allocator.alloc().is_ok_and(|t| t == 0));
-        assert_eq!(allocator.current_id, 1);
-        assert_eq!(allocator.max_id, 1);
+        let mut allocator = BTreeIdAllocator::new(3);
+        for i in 0..3 {
+            assert_eq!(allocator.current_id, i);
+            assert_eq!(allocator.max_id, 3);
+            assert!(allocator.alloc().is_ok_and(|t| t == i));
+        }
         assert!(allocator.alloc().is_err_and(|t| t.is_idexhausted()));
-        assert!(allocator.dealloc(0).is_ok());
-        assert!(allocator.alloc().is_ok_and(|t| t == 0));
-        assert_eq!(allocator.current_id, 1);
-        assert_eq!(allocator.max_id, 1);
+        for i in 0..3 {
+            assert_eq!(allocator.current_id, 3);
+            assert_eq!(allocator.max_id, 3);
+            assert!(allocator.dealloc(i).is_ok());
+        }
+        for i in 0..3 {
+            assert_eq!(allocator.current_id, 3);
+            assert_eq!(allocator.max_id, 3);
+            assert!(allocator.alloc().is_ok_and(|t| t == i));
+        }
         assert!(allocator.alloc().is_err_and(|t| t.is_idexhausted()));
+    }
+
+    #[test_case]
+    fn test_auto_recycled_allocator_alloc_and_dealloc() {
+        let allocator = AutoRecycledIdAllocator::new(3);
+        for _ in 0..3 {
+            assert!(allocator.alloc().is_ok_and(|t| t.id() == 0));
+        }
+        let mut temp = Vec::new();
+        for i in 0..3 {
+            let tracker = allocator.alloc();
+            assert!(tracker.as_ref().is_ok_and(|t| t.id() == i));
+            temp.push(tracker);
+        }
+        assert!(allocator.alloc().is_err_and(|t| t.is_idexhausted()));
+        drop(temp);
+        let mut temp = Vec::new();
+        for i in 0..3 {
+            let tracker = allocator.alloc();
+            assert!(tracker.as_ref().is_ok_and(|t| t.id() == i));
+            temp.push(tracker);
+        }
     }
 }

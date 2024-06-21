@@ -15,9 +15,7 @@ cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
         use riscv::register::sstatus;
 
-        // const SSTATUS_UIE_POSITION: usize = 0;
         const SSTATUS_SIE_POSITION: usize = 1;
-        // const SSTATUS_UPIE_POSITION: usize = 4;
         const SSTATUS_SPIE_POSITION: usize = 5;
         const SSTATUS_SPP_POSITION: usize = 8;
         const SSTATUS_SUM_POSITION: usize = 18;
@@ -26,7 +24,7 @@ cfg_if! {
         const SSTATUS_XS_RANGE: Range<usize> = 15..17;
 
         #[repr(C)]
-        #[derive(Debug, Clone, Copy)]
+        #[derive(Debug, Clone, Copy, Default)]
         pub(crate) struct TrapContext {
             /// WARNING: could not change the ordering of the fields in this structure,
             /// because the context instance might be initialized by assembly code in the assembly/trampoline.asm
@@ -88,10 +86,9 @@ cfg_if! {
             /// so we have to read every bits out and change it by ourselves :(
             fn read_sstatus_bits() -> usize {
                 let sts = sstatus::read();
+                
                 let mut bits = 0;
-                // bits.set_bit(SSTATUS_UIE_POSITION, sts.ie());
                 bits.set_bit(SSTATUS_SIE_POSITION, sts.sie());
-                // bits.set_bit(SSTATUS_UPIE_POSITION, sts.upie());
                 bits.set_bit(SSTATUS_SPIE_POSITION, sts.spie());
                 bits.set_bit(SSTATUS_SPP_POSITION, (sts.spp() as usize) != 0);
                 bits.set_bit(SSTATUS_SUM_POSITION, sts.sum());
