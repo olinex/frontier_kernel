@@ -62,6 +62,14 @@ version:
 	@echo Supervisor Binary Interface: $(SBI)
 	@echo Target: $(TARGET)
 
+# Output device tree specification
+qemu-dtc:
+	@qemu-system-$(ISA) -machine virt -machine dumpdtb=$(TARGET_DIR)/$(BOARD)-virt.dtb -bios default
+	@dtc -I dtb -O dts -o $(TARGET_DIR)/$(BOARD)-virt.dts $(TARGET_DIR)/$(BOARD)-virt.dtb
+	@rm -rf $(TARGET_DIR)/$(BOARD)-virt.dtb
+	@less $(TARGET_DIR)/$(BOARD)-virt.dts
+	@rm -rf $(TARGET_DIR)/$(BOARD)-virt.dts
+
 # Show qemu version info
 qemu-version:
 	@qemu-$(ISA) --version

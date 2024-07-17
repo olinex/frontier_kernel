@@ -50,7 +50,6 @@ pub(crate) const MAX_TASK_ID: usize = (1 << (MMU_ASID_RANGE.end - MMU_ASID_RANGE
 
 cfg_if! {
     if #[cfg(all(feature = "mmu_sv39", target_arch = "riscv64"))] {
-
         const MMU_MODE: Mode = Mode::Sv39;
         const PAGE_LEVEL: usize = 3;
         /// Virtual address binary composition structure

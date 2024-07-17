@@ -32,9 +32,9 @@ pub(crate) const MAX_CONDVAR_COUNT: usize = MAX_MUTEX_COUNT;
 pub(crate) const PIPE_RING_BUFFER_LENGTH: usize = 32;
 pub(crate) const COMMAND_LINE_ARGUMENTS_BYTE_SIZE: usize = 512;
 
+// the frequency of the board clock in Hz
 cfg_if! {
-    if #[cfg(feature = "board_qemu")] {
-        // the frequency of the board clock in Hz
+    if #[cfg(all(feature = "board_qemu", any(target_arch = "riscv32", target_arch = "riscv64")))] {
         pub(crate) const BOARD_CLOCK_FREQ: usize = 12_500_000;
         // the memory-mapped io registers virtual address range
         pub(crate) const MMIO: &[(usize, usize)] = &[

@@ -33,7 +33,7 @@ pub(crate) trait File: Send + Sync {
 lazy_static! {
     /// The root file system, through which all operations on files are invoked by the operating system
     pub(crate) static ref ROOT_FS: FS = {
-        let device = Box::new(BlockDeviceImpl::new());
+        let device = Box::new(BlockDeviceImpl::new().unwrap());
         let tracker = BLOCK_DEVICE_REGISTER.lock().mount(device).unwrap();
         *FS::open(&tracker).unwrap()
     };

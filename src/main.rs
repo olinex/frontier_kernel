@@ -2,6 +2,7 @@
 // @time:      2023/03/09
 #![no_std]
 #![no_main]
+#![feature(thin_box)]
 #![feature(int_roundings)]
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
@@ -27,6 +28,7 @@ extern crate lazy_static;
 extern crate alloc;
 
 extern crate bit_field;
+extern crate fdt;
 extern crate riscv;
 
 // self mods
@@ -43,6 +45,7 @@ mod trap;
 
 // use other mods
 use core::arch::global_asm;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // use self mods
 
@@ -56,7 +59,7 @@ mod prelude {
 
 // load assembly file and do init
 cfg_if! {
-    if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
+    if #[cfg(target_arch = "riscv64")] {
         global_asm!(include_str!("./assembly/riscv64/entry.asm"));
     } else {
         compile_error!("Unknown target_arch to load entry.asm from ./assembly");
@@ -79,35 +82,57 @@ pub(crate) fn clear_bss() {
 fn init() {
     // make logger marcos enable
     lang::logger::init();
-    // make kernel memory heap and page table enable, initialize kernel space
+    // init heap/frames/kernel space
     memory::init();
     // make process enable
     task::init();
-    // make trap handler enable
-    trap::init();
+    // release initial lock
+    release();
 }
 
 // will be called in [`./assembly/riscv64/entry.asm`]
 // for avoid rust main entrypoint symbol be confused by compiler
-cfg_if! {
-    if #[cfg(not(test))] {
-        // for testing in qemu
-        #[no_mangle]
-        #[inline(always)]
-        fn main() -> ! {
-            // clear bss must be the first thing to be done
-            clear_bss();
-            init();
+#[no_mangle]
+#[inline(always)]
+fn main(hartid: usize, _: usize) -> ! {
+    if hartid == 0 {
+        // clear bss must be the first thing to be done
+        clear_bss();
+        init();
+        // release initial lock after initialize
+        release();
+    }
+    // wait initial by hart zero was ready
+    wait();
+    // init trap handler
+    trap::init();
+    cfg_if! {
+        if #[cfg(not(test))] {
             task::run();
-        }
-    } else {
-        #[no_mangle]
-        #[inline(always)]
-        fn main() -> () {
-            // clear bss must be the first thing to be done
-            clear_bss();
-            init();
+        } else {
             test_main();
         }
     }
 }
+
+/// Make current hart to waitting kernel initialzation by hart zero.
+#[inline(always)]
+fn wait() {
+    while INITIALIZED
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
+    {
+        // TODO: we should make hart sleep a bit instead of busy loop.
+        continue;
+    }
+}
+
+/// Release the global lock of kernel initialzation. Only can by call by hart zero.
+#[inline(always)]
+fn release() {
+    INITIALIZED.store(false, Ordering::Relaxed);
+}
+
+/// The global lock of kernel initialization,
+/// which will be released by hart zero.
+static INITIALIZED: AtomicBool = AtomicBool::new(true);

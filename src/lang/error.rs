@@ -178,6 +178,14 @@ pub(crate) enum KernelError {
     #[error("Lib error: {0}")]
     LibError(#[from] LibError),
 
+    #[groups(others, driver, virtio)]
+    #[error("Driver virtio error: {0}")]
+    DriverVirtIOError(#[from] virtio_drivers::Error),
+
+    #[groups(other, driver, mmio)]
+    #[error("Driver mmio error: {0}")]
+    DriverMMIOError(#[from] virtio_drivers::transport::mmio::MmioError),
+
     #[groups(others, fs)]
     #[error("File system error: {0}")]
     FileSystemError(#[from] FFSError),
@@ -193,6 +201,10 @@ pub(crate) enum KernelError {
     #[groups(others, parse, core)]
     #[error("core error: {0}")]
     ParseUtf8Error(#[from] alloc::str::Utf8Error),
+
+    #[groups(others, parse, fdt)]
+    #[error("fdt error: {0}")]
+    ParseFdtError(#[from] fdt::FdtError)
 }
 
 pub(crate) type Result<T> = core::result::Result<T, KernelError>;

@@ -28,7 +28,7 @@ pub(crate) fn handle_alloc_error(layout: Layout) -> ! {
 pub(crate) fn init_heap() {
     let start_addr = unsafe { KERNEL_HEAP_SPACE.as_ptr() as usize };
     let end_addr = start_addr + configs::KERNEL_HEAP_BYTE_SIZE;
-    debug!("[{:#012x}, {:#012x}): Heap physical memory address initialized", start_addr, end_addr);
+    debug!("[{:#018x}, {:#018x}): Heap physical memory address initialized", start_addr, end_addr);
     unsafe {
         HEAP_ALLOCATOR
             .lock()

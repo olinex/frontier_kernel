@@ -35,7 +35,7 @@
 
 // self mods
 mod allocator;
-mod context;
+pub(crate) mod context;
 pub(crate) mod model;
 mod process;
 mod scheduler;

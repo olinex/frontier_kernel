@@ -58,7 +58,7 @@ impl PROCESSOR {
     }
 
     /// switch current process to idle task context
-    fn switch_from(&self, current_task_ctx_ptr: *mut TaskContext) {
+    pub(crate) fn switch_from(&self, current_task_ctx_ptr: *mut TaskContext) {
         let mut processor = self.exclusive_access();
         let next_task_ctx_ptr = processor.get_idle_task_ctx_ptr();
         drop(processor);

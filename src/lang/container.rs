@@ -12,10 +12,8 @@ pub(crate) struct UserPromiseRefCell<T> {
     // inner data
     inner: RefCell<T>,
 }
-
 // force mark UPSafeCell as a Sync safe struct
 unsafe impl<T> Sync for UserPromiseRefCell<T> {}
-
 impl<T> UserPromiseRefCell<T> {
     // User is responsible to guarantee that inner struct is only used in uniprocessor.
     pub(crate) unsafe fn new(value: T) -> Self {
