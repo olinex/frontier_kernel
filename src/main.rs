@@ -112,7 +112,7 @@ fn main(hartid: usize, _: usize) -> () {
         } else {
             test_main();
         }
-    }
+    };
 }
 
 /// Make current hart to waitting kernel initialzation by hart zero.
