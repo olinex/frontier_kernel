@@ -94,7 +94,7 @@ fn init() {
 // for avoid rust main entrypoint symbol be confused by compiler
 #[no_mangle]
 #[inline(always)]
-fn main(hartid: usize, _: usize) -> ! {
+fn main(hartid: usize, _: usize) -> () {
     if hartid == 0 {
         // clear bss must be the first thing to be done
         clear_bss();
